@@ -1,0 +1,105 @@
+---
+title: "Reservations"
+description: "Creating reservations with postReservation, setting status, per-room guests, notes, avoiding duplicates, and the validation errors you'll meet."
+---
+
+These findings come from creating ~500 reservations with the API during a property-to-property migration. Most of it applies whenever you create or update reservations.
+
+## Reading reservations
+
+- `getReservations` pages with `pageNumber` and `pageSize` (we used 100). It filters by `checkInFrom` and `checkInTo`. **Pass every status explicitly** (`status=confirmed,not_confirmed,canceled,checked_in,checked_out,no_show`) if you need them all. A short page means you've reached the end.
+- `getReservation` returns the booking with a `guestList` keyed by guest ID. Each guest has `isMainGuest` and `rooms[]` with the real integer `roomID` and `subReservationID`.
+- To get the **rate plan** a booking was sold on, use v1.3 `getReservationsWithRateDetails` (`rooms[].rateID`/`rateName`). `getReservation` doesn't include it.
+- Money: `getReservationInvoiceInformation` gives the invoice, including `reservationAdditionalProducts` (add-ons) and `balanceDetailed`. `getTransactions` gives each debit and credit with `transactionType`, `transactionCategory` and `transactionCode`. See [Folios and payments](/api-reference/cloudbeds/folios-and-payments).
+- Notes: `getReservationNotes`.
+
+## Creating: `postReservation`
+
+`POST https://api.cloudbeds.com/api/v1.2/postReservation`, PHP-form-encoded (see [Requests](/api-reference/cloudbeds/introduction#requests)).
+
+- `rooms[]` carries `roomTypeID`, `quantity`, `roomID` and `roomRateID`. `adults[]` and `children[]` carry `roomTypeID`, `roomID` and `quantity`. **The array indexes must line up with `rooms[]`.**
+- **One guest only.** `postReservation` takes a single guest, and the booking puts that guest on every room. To give each room its own guest, see [Per-room guests](#per-room-guests).
+- **The whole booking shares one date range.** A booking whose rooms have different dates can't be created in one call. `putReservation` accepts per-room `checkinDate`/`checkoutDate` afterwards, but the create still has to pass the availability check first.
+- **Status isn't settable here.** New bookings are `confirmed`; set any other status afterwards with `putReservation`.
+- **Room charges are generated automatically** at the property's **current rate plan**, not at the price you're copying from. Expect the folio total to differ from the source booking and plan to correct it (see [Rate differences](/api-reference/cloudbeds/folios-and-payments#rate-differences)).
+- Set `thirdPartyIdentifier` to your own reference (we used the source reservation number). It's the only practical way to find a booking you created; see [Avoiding duplicates](#avoiding-duplicates).
+- On `putReservation`, send `sendStatusChangeEmail=false` so guests aren't emailed during back-office status changes.
+
+### `sourceID`: only third-party sources work
+
+`sourceID` must be formatted to match the source's type, built from `getSources` (`sourceID`, `isThirdParty`, `paymentCollect`):
+
+| Source type | Format |
+|---|---|
+| Primary / direct | `s-{id}` |
+| Third-party, hotel collect | `ss-{id}-1` |
+| Third-party, channel collect | `ss-{id}-0` |
+
+<Warning>
+**Primary (`s-…`) sources are refused by `postReservation`** with 400 "Source not found". That applies to the built-in Website, Walk-In, Phone and Email (`s-1`/`s-2`/`s-3`/`s-5`) and to custom direct sources alike (confirmed live). Only **third-party** (`ss-…`) sources are assignable. To bring in direct bookings, create a **third-party** source in Cloudbeds (like a channel source, e.g. "Old Direct") and assign bookings to that. A source added under "Primary source" won't work.
+</Warning>
+
+Store the raw IDs and build the formatted string when you post. Don't store formatted strings.
+
+### `paymentMethod`
+
+Use a real code from the property's **`getPaymentMethods`**. The values shown in the API docs (`cash`, `credit`, `ebanking`, `pay_pal`) are just examples. Custom methods work in both `postReservation.paymentMethod` and `postPayment.type`. We created a method coded `Paidatanotherlocation` to record money already taken by the previous owner.
+
+### `customFields`: leave them out unless you have the shortcodes
+
+Sending `customFields` as `{customFieldID, customFieldValue}` makes the **whole create fail**: "fieldName and fieldValue are mandatory options for customFields". The fields are keyed by the destination's field **shortcode** (from `getCustomFields`). We left custom fields out of the create, since they held non-critical occasion notes.
+
+### Validation errors and fixes
+
+Each of these returns `success:false` and creates nothing, so you can safely fix the field and post again. We retried up to 4 times per booking and recorded each change in a note on the booking:
+
+| Error | Cause | What we did |
+|---|---|---|
+| "Parameter guestCountry is not valid" | Source data had placeholder countries like `00` (shown in the UI as North Korea) | Anything that isn't a two-letter ISO code → the property's home country, flagged for checking |
+| Invalid email | Source data had values like `N/A` | Anything that isn't a basic email format → a placeholder address, flagged |
+| `MAX_ADULTS_EXCEEDED` ("maximum N adults") | More adults than the room type allows | Read N and `details.room_type_id` from the error, cap that room's adults, flag to re-add |
+| "No rate found" / "could not accommodate" / "choose a smaller number of rooms" / "fewer number of guests" | Either **inventory** (room taken, allotment closed, fewer rooms than the source) or a **missing rate** for that room type and dates, or **occupancy** (e.g. 2 adults + 1 child in a 2-person room) | If children push it over, drop the children from the most-occupied room of that type and retry. Otherwise it's a data problem: open inventory or load the rate, then retry |
+
+Pre-empt the country and email problems by cleaning them before the first post, then keep the reactive retry as a safety net.
+
+## Status: `putReservation`
+
+- Statuses are `confirmed`, `not_confirmed`, `canceled`, `checked_in`, `checked_out` and `no_show`.
+- **A refused change returns HTTP 200 with `success:false`**: a silent no-op that leaves the booking on `confirmed`. Check the body.
+- Try the target status directly first. If it's refused, walk the chain **`confirmed` → `checked_in` → `checked_out`**, checking each step. (`canceled` and `no_show` can be set directly.)
+- `checked_in` needs a room assigned.
+- **`checked_out` is refused while the folio has a balance** ("There is still a balance remaining"). Post charges and payments **before** setting status. On a two-folio booking (Agent + Guest), an outstanding **agent** balance did not block checkout.
+
+## Per-room guests
+
+On a multi-room booking each room can have its own guest, but `postReservation` can't set that. Two calls afterwards do; neither shows in the API explorer's `postReservation` page, but both are in `llms.txt`:
+
+1. **`postGuest`**: `reservationID`, `guestFirstName`, `guestLastName`, `guestEmail` and `guestCountry` are all required. Returns `guestID`. The docs list it under v1.3, but we called it on `https://api.cloudbeds.com/api/v1.2` with the other writes and it worked.
+2. **`postGuestsToRoom`** (v1.2): `reservationID`, `roomID` (the **integer** room ID, which must already be assigned), `guestIDs` (comma-separated) and optional `mainGuestId` (must be one of `guestIDs`; makes that guest the room's lead).
+
+Read the assigned integer `roomID`s back with `getReservation`, because the room string you posted at create (e.g. `676220-0`) isn't what `postGuestsToRoom` takes. Match rooms by **name** when both sides use the same labels, and only fall back to matching by order when the counts are equal and you've told someone to check.
+
+Do this **after the create and before setting status**. A `checked_out` booking is locked for edits.
+
+<Note>
+`postGuest` HTML-encodes `&` on store: a guest named "Josie, Thomas & Caroline" shows as `&amp;` in the new Cloudbeds UI. `postReservation` doesn't do this for the main guest. We send the plain `&`. We didn't test whether sending an entity avoids it (it may double-encode).
+</Note>
+
+## Notes: `postReservationNote`
+
+- One call per note.
+- **Notes render as HTML and collapse whitespace.** Both `\n` and `\r\n` show as one long line, so convert line breaks to `<br>`.
+
+## Avoiding duplicates
+
+**Creating a reservation isn't idempotent.** Posting the same booking twice makes two bookings, and `postReservation` has no reference ID to stop it.
+
+- Stamp `thirdPartyIdentifier` on every booking you create.
+- If a create times out or its response is ambiguous, **don't post again blind**. Look first: page `getReservations` for that check-in date (`checkInFrom` = `checkInTo` = the date, all statuses) and match `thirdPartyIdentifier`.
+- Treat a lookup that errored, or hit your page limit before the end, as "might exist": hold the booking for review rather than risk a duplicate.
+- Notes and payments aren't idempotent either. If you find an orphaned booking, mark it for manual checking rather than replaying its follow-up calls.
+- To redo a booking you created, **delete it in Cloudbeds first**, then clear your own record of it.
+
+## Cancelled bookings
+
+When a booking is cancelled, the source **voids the room charge and refunds payments**. Its total, paid and balance then no longer describe a normal booking: `balanceDetailed.paid` is **gross of refunds**, so a cancelled booking can show paid far above its total. Recreating one means the destination charges the full room again. We left cancellations out of the automatic migration: ones with no money were simply excluded, and ones carrying money were handled by hand.

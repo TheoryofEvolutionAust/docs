@@ -77,6 +77,15 @@
             ]
           },
           {
+            "group": "Cloudbeds API",
+            "pages": [
+              "api-reference/cloudbeds/introduction",
+              "api-reference/cloudbeds/reservations",
+              "api-reference/cloudbeds/folios-and-payments",
+              "api-reference/cloudbeds/rates"
+            ]
+          },
+          {
             "group": "Agent / Reseller API guides",
             "pages": [
               "api-reference/agent-reseller-booking-system-workflows",
