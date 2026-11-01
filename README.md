@@ -13,6 +13,7 @@ Current API sections include:
 - Ibis API
 - AccomSOA API
 - TransportSOA API
+- Cloudbeds API (what we learnt calling it, not a copy of its docs)
 
 ## Development
 

@@ -1,0 +1,82 @@
+---
+title: "Cloudbeds API"
+description: "What we've learnt calling the Cloudbeds property API: base URLs and versions, authentication, the response envelope, rate limits, and how to add to this section."
+---
+
+Cloudbeds is the property management system (PMS) for hotels and hostels we build tools against. Its public docs are at [developers.cloudbeds.com](https://developers.cloudbeds.com) (an index for AI tools is at [developers.cloudbeds.com/llms.txt](https://developers.cloudbeds.com/llms.txt)).
+
+This section isn't a copy of those docs. It records **what we learnt by calling the API**: behaviour that is undocumented, documented wrongly, or only obvious after a failed live call. Read it before you build against Cloudbeds, and add to it when you learn something new.
+
+<Note>
+Each finding says where it came from. **Confirmed live** means a real call against a real property proved it. Anything less certain says so. Property-specific values (IDs, payment method codes, product IDs) are examples from one property: look yours up again.
+</Note>
+
+## Where these findings come from
+
+| Build | Repo | What it does |
+|---|---|---|
+| Cloudbeds handover migration (T0E hub) | `worker-cloudbeds-migration` | Moved ~630 bookings, with their folios, payments, notes and rates, from one Cloudbeds property to another at an asset sale (June–July 2026). |
+
+## Base URLs and versions
+
+Cloudbeds serves the same API under more than one host and version, and **not every endpoint works everywhere**. These are the combinations we used successfully:
+
+| Base URL | Used for |
+|---|---|
+| `https://hotels.cloudbeds.com/api/v1.2` | Reads: `getHotels`, `getReservations`, `getReservation`, `getReservationNotes`, `getReservationInvoiceInformation`, `getTransactions`, `getSources`, `getRoomTypes`, `getRooms`, `getCustomFields`, `getPaymentMethods` |
+| `https://api.cloudbeds.com/api/v1.2` | All writes on reservations: `postReservation`, `putReservation`, `postGuest`, `postGuestsToRoom`, `postCustomItem`, `postPayment`, `postAdjustment`, `postReservationNote` |
+| `https://api.cloudbeds.com/api/v1.3` | `getReservationsWithRateDetails` (a reservation with each room's `rateID`/`rateName`), `getRates`, `patchRate`, `putRate`, `getRateJobs` |
+
+The accounting API (`https://api.cloudbeds.com/accounting/v1.0`, with `getFolios`, `listFolioTransactions` and `/folios/configurations`) authenticated with our key but returned **empty results** for our property: it wasn't on the accounting ledger. Don't count on it for folio work. See [Folios and payments](/api-reference/cloudbeds/folios-and-payments).
+
+## Authentication
+
+Use a **property API key as a Bearer token**. There is no token exchange:
+
+```http
+Authorization: Bearer cbat_…
+```
+
+- When you create an API key, Cloudbeds also shows a client ID, client secret and redirect URI. Those are for its **OAuth 2.0** flow, for partner apps that need a user's consent. Property-level calls don't use them. Don't go down the OAuth `/access_token` path: it's a rabbit hole.
+- The `propertyID` comes from the key. Read it with `getHotels`. One key can see more than one property; ours saw one each.
+- **Keys expire after 30 days without use.** If a build sits idle between a rehearsal and a cutover, call it at least monthly.
+- Writes post as the key's **name**: custom items posted by an integration are grouped under a category with the key's name (ours was "Jason Imports"). Name the key deliberately, because it shows up in folio configuration.
+- Keep keys in Worker secrets. Never put them in a repo or in these docs.
+
+## Requests
+
+- **Reads** are `GET` with query parameters.
+- **Writes** are form-encoded:
+
+  ```http
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+  ```
+
+- **Arrays and objects must be PHP-style nested form fields**, not JSON strings. `rooms[0][roomTypeID]=123&rooms[0][quantity]=1` works, while `rooms=[{…}]` is rejected. This applies to `postReservation` (`rooms`, `adults`, `children`), `postCustomItem` (`items`) and `patchRate`/`putRate` (`rates`). A small encoder that walks the object and writes `key[i][field]=value` pairs covers all of them.
+- **Status changes use `PUT`** (`putReservation`).
+
+## Responses
+
+Every response is wrapped in an envelope:
+
+```json
+{ "success": true, "data": … }
+```
+
+**HTTP 200 with `"success": false` is common**: invalid status changes, refused checkouts and validation errors all come back as 200. Always check `success` in the body, not just the HTTP status. On failure, read `message`. Some errors also carry `error_code` and `details`; for example, `MAX_ADULTS_EXCEEDED` includes `details.room_type_id`.
+
+Response shapes vary between endpoints and versions. `getSources` returns `data` as an **array of arrays**, one inner array per property the key can see. Some endpoints return `reservationID` at the top level and others under `data`, so read both.
+
+## Rate limits
+
+Cloudbeds allows **5 requests per second** per property and can **suspend credentials** if you keep breaking that limit. Space every call at least 250 ms apart (about 4 per second) with one shared throttle, and never fire calls in parallel with `Promise.all`. In practice the throttle, not Cloudflare's subrequest cap, limits batch size: migrating one booking took 6–12 calls.
+
+## Adding to this section
+
+When a build teaches you something about Cloudbeds:
+
+1. Add it to the page for that area, or start a new page under `api-reference/cloudbeds/` and list it in `docs.json`.
+2. Say how you know it: **confirmed live** (and roughly when), or what is still unconfirmed.
+3. Add your build to the table above.
+4. Keep keys, guest names and personal details out.

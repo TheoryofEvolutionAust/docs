@@ -1,0 +1,54 @@
+---
+title: "Rates"
+description: "Loading rates with patchRate and putRate: PHP-form encoding, plan-level rate IDs, intervals created on write, ignored day-of-week prices, and async jobs."
+---
+
+These findings come from copying a property's base rates to another property with `patchRate`. Cloudbeds' docs are wrong on several of these points.
+
+## Endpoints
+
+| Endpoint | Base | Use |
+|---|---|---|
+| `patchRate` | `https://api.cloudbeds.com/api/v1.3` | Update a rate plan's intervals, and **create new intervals** |
+| `putRate` | `https://api.cloudbeds.com/api/v1.3` | Update. Doesn't take `minLos`/`maxLos` |
+| `getRateJobs` | `https://api.cloudbeds.com/api/v1.3` | Check an async rate job by `jobReferenceID` |
+| `getRates` | `https://api.cloudbeds.com/api/v1.3` | A **price quote** for given dates. **Not** a list of rate plans |
+| `getReservationsWithRateDetails` | `https://api.cloudbeds.com/api/v1.3` | The rate plan (`rooms[].rateID`/`rateName`) a booking was sold on |
+
+## Encoding: PHP-form fields, not JSON
+
+The docs show `rates=[{…JSON…}]` in the form body. Cloudbeds **rejects** that with "The rates parameter should be a collection". Send PHP-style nested fields:
+
+```
+rates[0][rateID]=3124517
+rates[0][interval][0][startDate]=2026-11-01
+rates[0][interval][0][endDate]=2026-11-30
+rates[0][interval][0][rate]=450
+rates[0][interval][0][minLos]=2
+```
+
+Use `Content-Type: application/x-www-form-urlencoded` and `Accept: application/json`. Put **one `rates[]` entry per `rateID`**, with all its intervals nested under `interval[]`.
+
+## `rateID` is the rate plan, not the interval
+
+`patchRate` wants the **rate plan's** ID (about 7 digits on our property), not an interval's ID (about 10 digits). Sending an interval ID gives "RateID … does not exist".
+
+- **There's no API to list rate plans**, and `getRates` is a quote, not a list. We read the plan IDs from the property's **Base Rates** page in the Cloudbeds UI: the hidden `<input name="rate_id">` is the plan ID, next to `<input name="room_type_id">`. Each interval row's `data-real_id` is the interval ID, which you can't use here.
+- Each room type gets **one base rate plan automatically**, holding all its intervals.
+- **Neither call creates a rate plan.** `patchRate` and `putRate` both need an existing `rateID`; `putRate` with an empty or `0` ID gives "rateID parameter value is missing". Create the room types (and so their base plans) first.
+
+## Intervals
+
+- An interval is `{ startDate, endDate, rate }`. `patchRate` also takes `minLos` and `maxLos`; `putRate` doesn't.
+- **`patchRate` creates intervals on write.** A date range that doesn't overlap an existing interval becomes a new one. You don't have to create intervals first.
+- **At most 30 intervals per call.** Chunk larger sets per `rateID`.
+- **Day-of-week prices (`day_0`…`day_6`) are silently ignored.** We sent different prices per weekday and every day landed at the flat `rate`. To vary price by weekday, split the range into single-rate intervals yourself.
+- **Interval names can't be set.** API-created intervals are named after their date range.
+
+## Async jobs
+
+`patchRate` and `putRate` return **HTTP 202** with `{ "success": true, "jobReferenceID": "…" }`. The change isn't done yet: check with `getRateJobs?jobReferenceID=…`. Jobs are kept for 7 days.
+
+## Rates and reservations
+
+A reservation is charged at the rate plan's **current** rate when it's created. Rates you load affect new bookings' charges, so load them before creating reservations. A missing rate for a room type and dates makes `postReservation` fail with "No rate found". See [Reservations](/api-reference/cloudbeds/reservations#validation-errors-and-fixes).

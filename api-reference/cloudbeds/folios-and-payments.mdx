@@ -1,0 +1,109 @@
+---
+title: "Folios and payments"
+description: "Charges, payments and adjustments on a reservation: postCustomItem, postPayment, postAdjustment, two-folio bookings, and reconciling to a source total."
+---
+
+A reservation's money lives in one or more **folios**. These findings come from rebuilding source folios on a destination property so that each balance matched the original.
+
+## What Cloudbeds charges automatically
+
+When you create a reservation, Cloudbeds posts these itself. Don't post them again:
+
+- **Room charges**, at the property's current rate plan (see [Rate differences](#rate-differences)).
+- **Taxes and fees** set up for the rate.
+
+**Commission was not posted automatically**, even with a commissioned source mapped. While the booking was `confirmed` there was no commission line, and the folio was gross. See [Commission](#commission).
+
+## Which endpoint does what
+
+| Endpoint | What it posts | Notes |
+|---|---|---|
+| `postCustomItem` | **Charges** (debits), with optional payments | The one you want for add-ons and fees |
+| `postPayment` | A **payment** (credit) | `type` = a `getPaymentMethods` code. Works on a `checked_out` booking |
+| `postCharge` | Despite the name, a **payment** | Not a charge. Don't use it for debits |
+| `postAdjustment` | A **reduction** to rate, product, fee or tax | Positive `amount` = reduction. No reference ID |
+
+## `postCustomItem`
+
+`POST https://api.cloudbeds.com/api/v1.2/postCustomItem`. It took four live failures to get the format right:
+
+1. "Parameter items is required" → the items go in an `items` array, not as flat fields.
+2. "Invalid value given in 'items'. Array expected." → `items` must be **PHP-form-encoded** (`items[0][itemName]=…`), not a JSON string.
+3. "Parameter appItemID is required" → every item needs an `appItemID`.
+
+What works:
+
+```
+reservationID=123
+referenceID=mig-123-items
+items[0][appItemID]=mig-food-the-grille
+items[0][itemName]=Food - The Grille
+items[0][itemPrice]=123.00
+items[0][itemQuantity]=1
+```
+
+- Item fields: `itemName`, `itemPrice` (unit price), `itemQuantity`. Optional: `itemSKU`, `itemCategoryName`, `itemNote`, `itemTaxes[]`, `itemFees[]`.
+- `appItemID` is your own ID for the item type. A stable slug of the name works, so every "Food - The Grille" shares one.
+- **`referenceID` makes the call idempotent**: Cloudbeds rejects a second call with the same `referenceID`. Use one per reservation per pass.
+- Use the `payments[]` array rather than `itemPaid`, which forces the payment to cash.
+- Items are grouped under a category named after the **API key's name**. You can route that category to a folio (see [Two-folio bookings](#two-folio-bookings)).
+
+## Copying charges from a source booking
+
+The source's guest-side charges split cleanly into two sets that don't overlap:
+
+- **Add-ons**: `getReservationInvoiceInformation` → `reservationAdditionalProducts`.
+- **Fees and surcharges**: `getTransactions` lines with `transactionType: "debit"` and `transactionCategory: "fee"` (e.g. "Credit Card Surcharge").
+
+Net out **voids**: a +400 surcharge cancelled by a −400 line with `transactionCategory: "void"` and the same description should come to nothing. Skip deleted transactions. Together, add-ons plus fees matched what the guest paid to the cent on the bookings we checked.
+
+The room itself is an accommodation charge, which the destination generates on its own. Never post it.
+
+## Payments
+
+- **Use the net paid amount (total − balance), not `balanceDetailed.paid`.** `paid` is gross of refunds: one checked-out booking had total 14,366.06, paid 14,466.06 and balance 0, because of a $100 refund. Copying the gross figure overpays.
+- Post charges and payments **before** setting status, since checkout is refused while there's a balance.
+
+## Two-folio bookings
+
+Bookings from a **billing agent** source get two folios, **Agent Main** and **Guest**, through the property's **Folio Configuration**. Typically the agent folio holds the room, on 30-day terms and often still owing, while the guest folio holds incidentals paid at departure.
+
+What we found (confirmed live):
+
+- **Neither API version exposes the folios on a reservation.** In v1.2, `getReservationInvoiceInformation` gives one combined invoice and a single sub-reservation. `postCustomItem` and `postPayment` take no folio ID. The v1.3 accounting API returned nothing for our property.
+- **Charges can be routed by configuration.** In Folio Configuration, route the API key's item category (e.g. "Jason Imports") → **Guest Folio** and "Room Related Charges" → **Agent Main Folio**. Charges then split correctly as they're created, with no code change.
+- **Payments can't be routed.** A payment goes on whichever folio you're "in". Through the API that's the **primary (agent)** folio, whatever the configuration's Credits section says. Nesting the payment in `postCustomItem`'s `payments[]` didn't help either. **An incidentals payment that belongs on the Guest folio has to be moved by hand** after import. Flag those bookings for staff.
+- `getTransactions` doesn't say which folio a line is on.
+
+Check whether a booking has two folios from the **source** and the property's folio configuration. Don't guess from the amounts: about half our bookings were two-folio, and single-folio bookings can have incidentals too.
+
+## Commission
+
+`postAdjustment` **can** post commission. An earlier conclusion that adjustments couldn't be posted through the API was wrong.
+
+```
+POST https://api.cloudbeds.com/api/v1.2/postAdjustment
+reservationID=123
+type=product
+itemID=<the property's internal product id for "Hotel Commission">
+amount=2625
+notes=…
+```
+
+- `type` is one of `rate`, `product`, `fee` or `tax`.
+- **A positive `amount` posts a reduction**: `1` posts −1.00.
+- `itemID` must be the property's **internal product ID**, not the SKU or item code (those return "Incorrect adjustment type"). The commission product doesn't track stock, so `getItems` doesn't return it. We found the ID by adding the product to one booking by hand and reading it back from `getTransactions` (the line's `originID`). Ours was `1291044` on one property; it will differ elsewhere.
+- Find the source's commission from its transactions: non-deleted lines with `transactionCode` `C01` or the description "Hotel Commission".
+- **No `referenceID`**, so posting twice posts twice. Only re-run on a fresh reservation.
+- Where it lands follows Folio Configuration: once the "Commission" category was routed to Agent, it landed on the Agent folio next to the room.
+
+## Rate differences
+
+The destination charges the room at its **current rate plan**, not at what the source booking was sold for. In our migration that was often 1.3–2× higher. Find the gap from **folio totals** (destination total vs source total), not balances, so you catch it in both directions:
+
+- **Over-charged** (the usual case): reduce the room rate.
+- **Under-charged**: raise the rate, then post the rest of the payment. A balance check misses this case, because you've only paid the smaller destination total.
+
+`postAdjustment` with `type=rate` and a positive `amount` (no `itemID`) should apply the reduction, and does so in the UI ("Adjust Charge → Room Rate"). That leaves the nightly room lines as they were plus one "Room Rate" reduction line. We confirmed it in the UI but **didn't run it through the API at scale**; we fixed rates by hand.
+
+A booking whose room was **comped** at the source ($0 room) is still worth creating, because it holds the room. The destination charges full rate, so flag it loudly for manual correction.
