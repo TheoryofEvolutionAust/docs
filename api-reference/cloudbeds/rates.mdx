@@ -1,9 +1,12 @@
 ---
 title: "Rates"
-description: "Loading rates with patchRate and putRate: PHP-form encoding, plan-level rate IDs, intervals created on write, ignored day-of-week prices, and async jobs."
+description: "Loading rates with patchRate and putRate: PHP-form encoding, plan-level rate IDs, intervals created on write, ignored day-of-week prices, async jobs, and reading the result back."
 ---
 
-These findings come from copying a property's base rates to another property with `patchRate`. Cloudbeds' docs are wrong on several of these points.
+These findings come from two builds: copying a property's base rates to another
+property with `patchRate`, and a rate manager that writes base rates 18 months
+out and then has to prove each night actually moved. Cloudbeds' docs are wrong
+on several of these points.
 
 ## Endpoints
 
@@ -13,6 +16,7 @@ These findings come from copying a property's base rates to another property wit
 | `putRate` | `https://api.cloudbeds.com/api/v1.3` | Update. Doesn't take `minLos`/`maxLos` |
 | `getRateJobs` | `https://api.cloudbeds.com/api/v1.3` | Check an async rate job by `jobReferenceID` |
 | `getRates` | `https://api.cloudbeds.com/api/v1.3` | A **price quote** for given dates. **Not** a list of rate plans |
+| `getRate` | `https://api.cloudbeds.com/api/v1.3` | Singular. **Reads one room type's rate back, per date** — the only way to learn what a rate IS now |
 | `getReservationsWithRateDetails` | `https://api.cloudbeds.com/api/v1.3` | The rate plan (`rooms[].rateID`/`rateName`) a booking was sold on |
 
 ## Encoding: PHP-form fields, not JSON
@@ -41,13 +45,108 @@ Use `Content-Type: application/x-www-form-urlencoded` and `Accept: application/j
 
 - An interval is `{ startDate, endDate, rate }`. `patchRate` also takes `minLos` and `maxLos`; `putRate` doesn't.
 - **`patchRate` creates intervals on write.** A date range that doesn't overlap an existing interval becomes a new one. You don't have to create intervals first.
-- **At most 30 intervals per call.** Chunk larger sets per `rateID`.
+- **At most 30 intervals per call.** Cloudbeds' wording is "30 interval per update". We chunk at 30 **across the whole request**, counting every `rateID`'s intervals together, which is the conservative reading; whether the limit is really per `rateID` is unconfirmed, and getting it wrong returns an error rather than truncating silently, which is the good failure.
 - **Day-of-week prices (`day_0`…`day_6`) are silently ignored.** We sent different prices per weekday and every day landed at the flat `rate`. To vary price by weekday, split the range into single-rate intervals yourself.
 - **Interval names can't be set.** API-created intervals are named after their date range.
+
+- **A derived rate can't be written.** `getRate` returns `isDerived` and
+  `parentRateID` at the top level. `patchRate` refuses a derived rate, so read
+  that flag before you build a plan rather than discovering it mid-batch against
+  a live property.
 
 ## Async jobs
 
 `patchRate` and `putRate` return **HTTP 202** with `{ "success": true, "jobReferenceID": "…" }`. The change isn't done yet: check with `getRateJobs?jobReferenceID=…`. Jobs are kept for 7 days.
+
+### A job-level `error` does not mean the whole batch failed
+
+`getRateJobs` returns a job with `status` of `in_progress`, `completed` or
+`error`, **and a per-interval `updates[]` array**. Each entry carries its own
+`startDate`/`endDate`, an `action` of `in_progress`, `updated`, `created` or
+`error`, the `rate` that was actually set, and a `message`.
+
+`error` at the job level means **one or more** of those updates failed, not all
+of them. Settle per interval, not per job: read job-level `error` as a batch
+failure and a 30-night update with one bad night files 29 correct changes as
+failures.
+
+Four things we refuse to read as success, each of which otherwise records a
+price nobody set:
+
+- the job finished and reported **nothing** for a date we sent
+- `action` is a value we don't recognise
+- `action` says `updated`/`created` but carries **no rate**
+- the rate it reports is **not the rate we asked for**
+
+### Ordering is not documented, and `updated` is a claim about the past
+
+Cloudbeds publishes no ordering guarantee for the queue, and its RMS guide
+recommends sending **simultaneous** updates within the rate limits. So two sends
+to the same date are not guaranteed to land in the order you made them.
+
+More importantly, a job reporting `updated` says what Cloudbeds **did**, not
+what the rate **is**. A night changed again five minutes later — by you, by
+another integration, or by hand in the UI — reports `updated` for ever. If you
+need to know the current price, read it back.
+
+### Prefer the webhook to polling
+
+Cloudbeds' RMS guide recommends subscribing to the
+`api_queue_task/rate_status_changed` webhook rather than polling `getRateJobs`.
+Polling works and is what we do, because it needs no public endpoint — but it
+costs one upstream call per job and is bounded by whatever deadline the caller
+is waiting behind.
+
+## Reading a rate back: `getRate`
+
+`getRate?roomTypeID=…&startDate=…&endDate=…` returns `data.roomRateDetailed[]`,
+one entry per date, with `rate` and `totalRate`, plus `roomsAvailable`,
+`blocked`, `closedToArrival`, `closedToDeparture`, `minLos` and `maxLos`. The
+top level carries `rateID`, `isDerived` and `parentRateID`.
+
+This is the endpoint that answers "what is this night selling at", and it is
+worth building on for three reasons:
+
+- **It settles whether a write stuck**, which no job report can.
+- **A date with no interval is reported as absent, not as zero** — but we have
+  not established that the API never returns a literal `0` for one. Zero is also
+  a real setting (a date closed out), so treat a missing figure and a zero as
+  different things and never coerce either with `Number(x) || 0`.
+- **It is the check before a create.** Writing a range you believe is empty is
+  the difference between filling a gap and overwriting a year of prices, and
+  this is the only way to verify the boundary.
+
+<Note>
+Money comes back as a decimal. Converting to integer cents, round rather than
+truncate: `86.9 * 100` is `8690.000000000001` in JavaScript, and truncating
+loses a cent on every price.
+</Note>
+
+## Finding the rate to sell at
+
+A **rate** is a room type composed with a rate plan, and it has its own ID. Rate
+plan `495538` is rate `3266901` under one 8-bed dorm and `3266902` under
+another. `postReservation` wants the **rate ID** in `rooms[].roomRateID`, and the
+wrong one fails with *"No rate found. Please verify roomTypeID and/or
+roomRateID"*.
+
+- **`getAvailableRoomTypes` takes no source parameter, yet silently applies each
+  plan's source restrictions.** A negotiated rate the booker is entitled to use
+  is simply absent from the response — active, in date, covering the room type,
+  priced, and invisible. Read the plans separately and merge them in, or you
+  will quietly sell at rack rate.
+- **Query rate availability as `rooms=1&adults=1`.** Asking for the real party
+  size hides every room type that could take *part* of the group, which is
+  exactly what a multi-room booking needs to see.
+- **The base rate plan may be UNNAMED rather than named `default`.** Matching
+  the literal string finds nothing and every room type reports "no base rate",
+  which looks like a property misconfiguration rather than a classifier bug.
+- **`roomTypeUnits` counts units, not rooms** — beds for a dorm, rooms for a
+  private type. Printed as "rooms" it reads as 144 rooms for an 18-room dorm
+  block.
+- **`isPrivate` is not reliable.** One property reports `false` on every one of
+  its private rooms. Decide room-level versus bed-level booking from the `ROOMS`
+  records instead.
 
 ## Rates and reservations
 

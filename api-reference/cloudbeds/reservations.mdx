@@ -103,3 +103,32 @@ Do this **after the create and before setting status**. A `checked_out` booking 
 ## Cancelled bookings
 
 When a booking is cancelled, the source **voids the room charge and refunds payments**. Its total, paid and balance then no longer describe a normal booking: `balanceDetailed.paid` is **gross of refunds**, so a cancelled booking can show paid far above its total. Recreating one means the destination charges the full room again. We left cancellations out of the automatic migration: ones with no money were simply excluded, and ones carrying money were handled by hand.
+
+## Notes are a separate call
+
+`postReservation` has **no free-text note field**. Anything the booker typed
+goes as `postReservationNote` once the reservation exists, which means a booking
+can be created and its note then fail. Decide which of those you treat as the
+outcome; we treat the reservation as the thing that happened and surface the
+note failure separately.
+
+## Direct and third-party sources are different sources
+
+`getSources` returns both, and **the same operator can exist as both**: one
+trading partner of ours is third-party `ss-353543` *and* direct `s-1055799`,
+with different rate plans behind each. They are not duplicates to be merged.
+
+- For **creating** a booking, only third-party (`ss-…`) sources are assignable —
+  see [`sourceID`](#sourceid-only-third-party-sources-work).
+- For **reading**, filter deliberately. A tool that offers a booker "the source
+  list" usually wants direct sources only, because a third-party source belongs
+  to the channel manager; say so in the UI, or the first question you get is why
+  a channel is missing.
+
+## A party size you pass is not a party size you can read back
+
+Nothing in a reservation payload records how many people share a private room.
+The same King is a single for a guide and a double for a couple, and no field
+distinguishes them. If a tool needs that number, it has to be told — and it
+cannot check the answer, so it should say what it has assumed rather than
+present it as fact.

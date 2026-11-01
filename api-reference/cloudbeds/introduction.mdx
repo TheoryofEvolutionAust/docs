@@ -16,6 +16,9 @@ Each finding says where it came from. **Confirmed live** means a real call again
 | Build | Repo | What it does |
 |---|---|---|
 | Cloudbeds handover migration (T0E hub) | `worker-cloudbeds-migration` | Moved ~630 bookings, with their folios, payments, notes and rates, from one Cloudbeds property to another at an asset sale (June–July 2026). |
+| FRB group bulk importer | `worker-frb-bulk-importer` | Creates one multi-bed group reservation from a spreadsheet: rate discovery, bed-level allocation, then `postReservation` (Sept–Oct 2026). |
+| FRB invoicing | `worker-frb-finance-1` | Reconciles a trading partner's remittance statement against Cloudbeds bookings, raises the Xero invoice, then marks each reservation paid with `postPayment` (Sept–Oct 2026). |
+| FRB rate management | `worker-frb-ratemanager` | Writes base rates 18 months out with `patchRate`, then confirms each night actually moved (Oct–Nov 2026). |
 
 ## Base URLs and versions
 
@@ -39,6 +42,13 @@ Authorization: Bearer cbat_…
 
 - When you create an API key, Cloudbeds also shows a client ID, client secret and redirect URI. Those are for its **OAuth 2.0** flow, for partner apps that need a user's consent. Property-level calls don't use them. Don't go down the OAuth `/access_token` path: it's a rabbit hole.
 - The `propertyID` comes from the key. Read it with `getHotels`. One key can see more than one property; ours saw one each.
+- **The key carries scopes, and a missing one fails at the call.** There is no
+  endpoint that lists what a key may do, so a scope you did not ask for is
+  discovered by the write that needs it being refused. Decide the full set when
+  you create the key — adding one later means issuing a new key and rotating it
+  everywhere. Writes we have needed: `write:rate` (`patchRate`/`putRate`),
+  `write:reservation` (`postReservation`), `write:payment` (`postPayment`).
+  Reads have their own `read:*` scopes.
 - **Keys expire after 30 days without use.** If a build sits idle between a rehearsal and a cutover, call it at least monthly.
 - Writes post as the key's **name**: custom items posted by an integration are grouped under a category with the key's name (ours was "Jason Imports"). Name the key deliberately, because it shows up in folio configuration.
 - Keep keys in Worker secrets. Never put them in a repo or in these docs.
@@ -66,7 +76,31 @@ Every response is wrapped in an envelope:
 
 **HTTP 200 with `"success": false` is common**: invalid status changes, refused checkouts and validation errors all come back as 200. Always check `success` in the body, not just the HTTP status. On failure, read `message`. Some errors also carry `error_code` and `details`; for example, `MAX_ADULTS_EXCEEDED` includes `details.room_type_id`.
 
+**A refusal can be a 200 that reads like an outage.** A suspended property
+answers reads with `success: false` and a message naming the problem — *"the
+property(ies) you are accessing have an invalid status … overdue: 24924"*. A
+client that checks only the HTTP status sees an empty but successful import, and
+every downstream comparison then reports real bookings as missing. Read
+`message` and surface it: the one sentence that explains the outage is in the
+body.
+
 Response shapes vary between endpoints and versions. `getSources` returns `data` as an **array of arrays**, one inner array per property the key can see. Some endpoints return `reservationID` at the top level and others under `data`, so read both.
+
+## Idempotency differs per endpoint, and it matters
+
+There is no general idempotency header. Each write is its own case, and the
+difference decides what a client may safely retry:
+
+| Endpoint | Retrying the same payload | Why |
+|---|---|---|
+| `patchRate` / `putRate` | **Safe** | They *assign* a rate. The same payload produces the same rate, so an unknown outcome can be resolved by sending it again. |
+| `postCustomItem` | **Safe with `referenceID`** | Cloudbeds rejects a second call carrying the same one. |
+| `postReservation` | **Not safe** | It *creates*. Nothing upstream notices a duplicate booking; carry your own one-time claim, keyed on a hash of the request body. |
+| `postPayment` | **Not safe** | It *adds*. A folio paid twice reads as a reconciliation that ran twice and settled twice. |
+
+Build the retry policy around that table rather than around the HTTP status. A
+timeout means the same thing in every row; what differs is whether you may act
+on it.
 
 ## Rate limits
 
