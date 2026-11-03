@@ -52,7 +52,9 @@ Lists the extra-hire items available for a quote (`sAvailabilityRef`) or an exis
 
 ## VehRes — create the reservation (book)
 
-Creates the booking and can **auto-return a confirmation** on create. This is the `book` step. **Open commercial question:** net-rate B2B implies agent-account settlement rather than a Jucy-style Stripe payment link — confirm how/whether payment is captured here before building `book`.
+Creates the booking and can **auto-return a confirmation** on create. This is the `book` step.
+
+**Payment is agent-on-account** — settled off-API, not captured through the booking call. The API's job is **quote and book only**: there is no Jucy-style Stripe payment link to generate or reconcile. `VehRes` creates the reservation against the agent account; billing happens outside TransportSOA.
 
 ## VehModify / VehAddExtra — amend
 

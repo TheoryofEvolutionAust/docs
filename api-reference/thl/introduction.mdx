@@ -79,7 +79,9 @@ US (`Road Bear RV` `R`, `El Monte RV` `E`, `Mighty` `Y`) and Canada (`CanaDream`
 
 ## Product content is out-of-band
 
-The OTA responses return **vehicle code + brand + rates** — **no images, descriptions, specs or berth layouts**. Rich content exists only as a static reference (Appendix A: `Product Name → Code → Brand`). So, like RCM, THL is **IDs-only**: TDMS sources the content; TransportSOA passes IDs. There is no Jucy-style product-content endpoint to import from.
+The `VehAvailRate` responses return, per vehicle: **code** (`VehMakeModel Code`, e.g. `2BTSM`), a **name** (`VehMakeModel Name`, e.g. `Ultima - 2 Berth` — sometimes a little richer, e.g. `Voyager - 4 berth motorhome with rear island bed`), **brand**, **berth / category** (`VehClass Size` / `VehType VehicleCategory`), and **pricing** (`VehicleCharge`). There is a **`PictureURL` field, but it is empty in every sample** — so no image is actually delivered.
+
+What you do **not** get: images, marketing descriptions, specifications, feature lists, galleries or floor plans — the rich content Jucy serves. The API gives enough to **identify and price** a vehicle, not to **merchandise** it. So, like RCM, THL is effectively **IDs-only for content**: images/descriptions would be sourced by us or TDMS, keyed on the vehicle `Code`; TransportSOA passes IDs. Appendix A is likewise just `Name → Code → Brand`. There is no Jucy-style product-content endpoint to import from.
 
 ## Adding to this section
 
