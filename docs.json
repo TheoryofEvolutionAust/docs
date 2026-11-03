@@ -86,6 +86,13 @@
             ]
           },
           {
+            "group": "THL (Aurora OTA) API",
+            "pages": [
+              "api-reference/thl/introduction",
+              "api-reference/thl/booking-flow"
+            ]
+          },
+          {
             "group": "Agent / Reseller API guides",
             "pages": [
               "api-reference/agent-reseller-booking-system-workflows",

@@ -1,0 +1,90 @@
+---
+title: "THL (Aurora OTA) API"
+description: "What we know about THL's Aurora OTA campervan API ahead of building against it: SOAP/XML transport, the LoginOK/EchoToken session, the brand model, net rates, and the environments."
+---
+
+THL (Tourism Holdings Ltd) rents campervans and motorhomes across five AU/NZ brands — **Maui, Britz, Mighty, Apollo, MightyLITE** — plus separate US and Canada brands. Its agent/reseller integration is **"Aurora OTA"**: an [OpenTravel (OTA)](https://opentravel.org) vehicle-rental message set delivered over **SOAP**.
+
+<Note>
+**This section is scoping, not yet confirmed live.** Everything here is sourced from THL's *OTA Technical Documentation* (13 Aug 2026) and its appendices, **before** we have called the API. Mark each finding **confirmed live** (and roughly when) once a real staging call proves it; until then treat it as "documented, unverified". Codes and product IDs are examples — look yours up again.
+</Note>
+
+## How it differs from our other transport suppliers
+
+This matters because it sets the build cost. Neither thing below exists in the TransportSOA Worker today.
+
+| | THL Aurora OTA | Jucy | RCM |
+|---|---|---|---|
+| Transport | **SOAP 1.1 / 1.2 (XML)** | REST / JSON | REST / JSON |
+| Auth | **Session: `LoginOK` → JWT, replayed as `EchoToken`** | static API key | HMAC signature per call |
+| Product content | **IDs only** (content is a static list) | rich content via API | IDs only |
+| Rate | **Net** (we add margin) | — | — |
+
+So the real work in a THL build is a **SOAP/XML client** and a **login session** (cache the token, re-login on `unauthorized`), not the booking logic — the booking flow itself maps cleanly onto our contract (see [Booking flow](/api-reference/thl/booking-flow)).
+
+## Environments
+
+THL calls the staging host "utils". Both expose a WSDL.
+
+| Environment | OTA endpoint | WSDL |
+|---|---|---|
+| **Staging / sandbox** | `https://otautils.thlonline.com/Aurora_OTA.asmx` | `…/Aurora_OTA.asmx?wsdl` (SOAP 1.1), `…/Aurora_OTA_12.asmx?wsdl` (SOAP 1.2) |
+| **Production** | `https://ota.thldigital.com/Aurora_OTA.asmx` | `…/Aurora_OTA.asmx?wsdl` (SOAP 1.1), `…/Aurora_OTA_12.asmx?wsdl` (SOAP 1.2) |
+
+The underlying rental platform is **"Motek"** — branch/location codes in requests are Motek codes (see Appendix B).
+
+## Authentication — a login session, not a static key
+
+1. Call **`LoginOK`** (request schema `THL_LoginOkRQ`) with the agent's `email`, `password`, and `IsAgent` = `"true"`.
+2. The response (`THL_LoginOkRS`) returns an access token — a **JWT**.
+3. Pass that JWT as the **`EchoToken`** on every subsequent OTA request. *"An invalid value will give an 'unauthorized' error."*
+
+Implications for a Worker build:
+- **Cache the token** (KV) and reuse it across requests; don't log in per call.
+- **Re-login on `unauthorized`** — treat it as token expiry and retry once.
+- Keep the agent credentials in Worker secrets, never in a repo or these docs.
+
+## Common request parameters
+
+Carried on OTA requests (SOAP body). The one that matters most is `EchoToken`.
+
+| Parameter | Meaning |
+|---|---|
+| `EchoToken` | The JWT from `LoginOK`. Access token; invalid → `unauthorized`. |
+| `Target` | `Production` for live, `Test` for test. Advisory (identifies request origin). |
+| `Version` | Message version (e.g. `1`). |
+| `TimeStamp` | When the request was sent. |
+| `POS` / `Source` | Point of sale: `AgentSine` / `ERSP_UserID` carry the Trade Partner / Agent ID; `RequestorID` `Type` = `22`, `ID` = agent code (e.g. `DEMOPARTAG`). |
+| `ISOCountry` | e.g. `AU`. If omitted, OTA returns defaults (VehAvailRate defaults to `GP`). Passing it null/empty throws an error. |
+
+**Headers:** `UserAgent` and `Content-Type` are mandatory; `SOAPAction` is optional (but SOAP 1.1 typically wants it, e.g. `http://www.thlrentals.com/Aurora/OTA/LoginOk`).
+
+## Brands
+
+One login covers all five AU/NZ brands. Each availability result carries the vehicle's brand, and you can filter (see [Booking flow](/api-reference/thl/booking-flow)).
+
+| Brand | Code |
+|---|---|
+| Maui | `M` |
+| Britz | `B` |
+| Mighty | `Y` |
+| Apollo | `A` |
+| MightyLITE | `L` |
+
+US (`Road Bear RV` `R`, `El Monte RV` `E`, `Mighty` `Y`) and Canada (`CanaDream` `D`) are separate region lists.
+
+## Rates are net
+
+*"All ATL brands are net rate."* Request `Status=Available` for net (what we mark up) or `Status=Gross` for gross. Net rate means TransportSOA applies the margin, consistent with the WebsiteTravel model.
+
+## Product content is out-of-band
+
+The OTA responses return **vehicle code + brand + rates** — **no images, descriptions, specs or berth layouts**. Rich content exists only as a static reference (Appendix A: `Product Name → Code → Brand`). So, like RCM, THL is **IDs-only**: TDMS sources the content; TransportSOA passes IDs. There is no Jucy-style product-content endpoint to import from.
+
+## Adding to this section
+
+When a build (or a staging call) teaches us something about THL:
+
+1. Add it to the relevant page, or start a new page under `api-reference/thl/` and list it in `docs.json`.
+2. Say how we know it: **confirmed live** (and roughly when), or still unverified.
+3. Keep credentials, tokens and personal details out.

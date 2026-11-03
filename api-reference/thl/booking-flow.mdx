@@ -1,0 +1,72 @@
+---
+title: "Booking flow"
+description: "THL Aurora OTA's vehicle message set — availability, quote, book, modify, cancel — and how each call maps onto the TransportSOA contract."
+---
+
+<Note>
+Scoping overview, **not yet confirmed live**. Message names and behaviours are from THL's *OTA Technical Documentation* (13 Aug 2026). Per-field request/response parameter libraries are intentionally **not** transcribed yet — add them per endpoint once the connection is greenlit and we have called staging.
+</Note>
+
+THL uses the standard OpenTravel vehicle message set. Each is a `…RQ`/`…RS` pair in a SOAP body. The flow maps cleanly onto our TransportSOA contract, and is **closer to Jucy than RCM** — the quote is folded into the availability response, with no multi-call chain and no synthetic probe.
+
+## The message set, mapped to our contract
+
+| TransportSOA contract | THL Aurora OTA message | Notes |
+|---|---|---|
+| `getAvailabilityByCriteria` | **`VehAvailRate`** (`OTA_VehAvailRateRQ/RS`) | Availability **and** rates in one response. |
+| `createQuote` | **`VehAvailRate`** + **`GetExtraHireItems`** | Rates come back with availability; extras listed separately. |
+| `updateQuote` | **`VehModify`** / **`VehAddExtra`** | Change pax, attach a note, add extras. |
+| `book` | **`VehRes`** (`OTA_VehResRQ/RS`) | Creates the reservation; can auto-return a confirmation. |
+| (retrieve) | **`VehRetRes`** | Retrieve an existing reservation. |
+| `cancel` | **`VehCancel`** | Cancel a reservation. |
+
+## VehAvailRate — availability + rates (search & quote)
+
+One call does search *and* pricing.
+
+- **Dates are date-only.** `PickUpDateTime` / `ReturnDateTime` are `yyyy-mm-ddThh:mm:ss`, but **the time component is ignored by design** ("to keep consistency with the Motek App"). This is the key contrast with RCM, where time moves pricing and we maintain a probe-time workaround — THL needs none of that.
+- **Locations** are Motek branch codes (`LocationCode` + `CodeContext`), e.g. `AKL` — see Appendix B.
+- **Rate status** — `Status=Available` (net) or `Status=Gross`.
+
+### Filtering (brand, berth, rate)
+
+THL exposes several levers in `VehAvailRate`:
+
+| Lever | Field | Behaviour |
+|---|---|---|
+| Single brand | `VehPref` → `ClassPref` `Code` | One brand code (`A`/`B`/`E`/`M`/`Y`/`R`/`D`). |
+| Multiple brands | `RateQualifier` | Acts as a brand filter; supports **multiple** brands (AU/NZ qualifier codes e.g. `BRITZN`, `MIGHTY`, `DMIGHTY`). |
+| Berth / size | `VehType` `VehicleCategory` | `V2`–`V6` = "n berth **or above**". Recommend `V2` to return everything. |
+| Promotion | `PromotionCode` | Optional promo code. |
+| Coverage | `CoveragePrefs` → `CoveragePref` `Code` | See below. |
+
+Each result carries **the vehicle's brand**, so fetching all brands and splitting client-side is also viable. (Note: `VehPref` → `TypePref` is documented as *not* a brand filter and "not in use".)
+
+### Coverage (insurance) products
+
+`CoveragePref` `Code` (e.g. `VALUEPACKP`, from Appendix A) names a coverage product. THL **auto-adds** it to the rental if it's available for that vehicle; if not, the rental is still returned without it. This is THL's analog of RCM's insurance options — and the field we'd map an agent's insurance selection onto.
+
+## GetExtraHireItems — bookable extras
+
+Lists the extra-hire items available for a quote (`sAvailabilityRef`) or an existing booking (`BookingReference`). THL notes all extras available in the B2B channel can be booked via OTA. Pairs with `VehAddExtra` to attach extras to a booking post-creation.
+
+## VehRes — create the reservation (book)
+
+Creates the booking and can **auto-return a confirmation** on create. This is the `book` step. **Open commercial question:** net-rate B2B implies agent-account settlement rather than a Jucy-style Stripe payment link — confirm how/whether payment is captured here before building `book`.
+
+## VehModify / VehAddExtra — amend
+
+- **`VehModify`** — change an existing booking: number of adults/children, attach a note. Documented validation rules govern what may change.
+- **`VehAddExtra`** — add extra-hire items to an existing booking.
+
+## VehRetRes / VehCancel — retrieve & cancel
+
+- **`VehRetRes`** — retrieve a reservation (confirmation lookup).
+- **`VehCancel`** — cancel a reservation. Confirm cancellation-fee / window semantics against staging before relying on them.
+
+## What this means for a TransportSOA build
+
+- **No probe, no chain, no time-sensitivity** in search — simpler than RCM.
+- **Quote = availability**, so `createQuote` is mostly a projection of the `VehAvailRate` response plus `GetExtraHireItems`.
+- The **effort is the SOAP/XML transport and the login session**, not the flow — see [Introduction](/api-reference/thl/introduction).
+- **Reference data to map:** brands (Appendix B), Motek locations (Appendix B), vehicles + coverage + fee products (Appendix A).
