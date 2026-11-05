@@ -16,48 +16,58 @@ This matters because it sets the build cost. Neither thing below exists in the T
 | | THL Aurora OTA | Jucy | RCM |
 |---|---|---|---|
 | Transport | **SOAP 1.1 / 1.2 (XML)** | REST / JSON | REST / JSON |
-| Auth | **Session: `LoginOK` → JWT, replayed as `EchoToken`** | static API key | HMAC signature per call |
+| Auth | **Static API key header (`x-api-key`)** | static API key | HMAC signature per call |
 | Product content | **IDs only** (content is a static list) | rich content via API | IDs only |
 | Rate | **Net** (we add margin) | — | — |
 
-So the real work in a THL build is a **SOAP/XML client** and a **login session** (cache the token, re-login on `unauthorized`), not the booking logic — the booking flow itself maps cleanly onto our contract (see [Booking flow](/api-reference/thl/booking-flow)).
+So the real work in a THL build is just a **SOAP/XML client** — the booking flow itself maps cleanly onto our contract (see [Booking flow](/api-reference/thl/booking-flow)), and as of Nov 2026 auth is a static header, not a session. An earlier revision used a `LoginOK` session with a JWT replayed as `EchoToken`; THL has since **replaced that with the `x-api-key` header** (Guide D), removing the token-cache / re-login work entirely. The SOAP transport is the only net-new cost left.
 
 ## Environments
 
-THL calls the staging host "utils". Both expose a WSDL.
+New hosts, from Guide D (Nov 2026) and the sample cURL — these **supersede** the earlier `otautils.thlonline.com` / `ota.thldigital.com` `.asmx` endpoints.
 
-| Environment | OTA endpoint | WSDL |
-|---|---|---|
-| **Staging / sandbox** | `https://otautils.thlonline.com/Aurora_OTA.asmx` | `…/Aurora_OTA.asmx?wsdl` (SOAP 1.1), `…/Aurora_OTA_12.asmx?wsdl` (SOAP 1.2) |
-| **Production** | `https://ota.thldigital.com/Aurora_OTA.asmx` | `…/Aurora_OTA.asmx?wsdl` (SOAP 1.1), `…/Aurora_OTA_12.asmx?wsdl` (SOAP 1.2) |
+| Environment | OTA endpoint (SOAP 1.1) | SOAP 1.2 | WSDL |
+|---|---|---|---|
+| **Staging / sandbox** | `https://api-staging.thlonline.com/xml` | `…/xml/12` | `…/xml?wsdl`, `…/xml/12?wsdl` |
+| **Production** | `https://api.thlonline.com/xml` | `…/xml/12` | `…/xml?wsdl`, `…/xml/12?wsdl` |
 
-The underlying rental platform is **"Motek"** — branch/location codes in requests are Motek codes (see Appendix B).
+<Note>
+THL's docs are mid-transition and inconsistent: the "NEW API Technical Documentation" still prints an `.asmx` path on the new hosts, while Guide D and the sample cURL use `/xml`. Treat **`/xml`** as current and confirm on the first staging call.
+</Note>
 
-## Authentication — a login session, not a static key
+The underlying rental platform is **"Motek"** — branch/location codes in requests are Motek codes (see Appendix B). The B2B admin that issues the API key is **Motek B2B** (`https://b2bmotek.thlonline.com`; older portal `https://motek.b2b.thlonline.com`).
 
-1. Call **`LoginOK`** (request schema `THL_LoginOkRQ`) with the agent's `email`, `password`, and `IsAgent` = `"true"`.
-2. The response (`THL_LoginOkRS`) returns an access token — a **JWT**.
-3. Pass that JWT as the **`EchoToken`** on every subsequent OTA request. *"An invalid value will give an 'unauthorized' error."*
+## Authentication — a static API key header
 
-Implications for a Worker build:
-- **Cache the token** (KV) and reuse it across requests; don't log in per call.
-- **Re-login on `unauthorized`** — treat it as token expiry and retry once.
-- Keep the agent credentials in Worker secrets, never in a repo or these docs.
+THL **replaced the login/token session** with a static API key (Guide D, Nov 2026). Current model:
+
+1. A B2B admin generates an API key in **Motek B2B** (Settings → Accounts → API Key → *Generate*). It is shown once then hidden; lost keys are regenerated, and a key can be revoked.
+2. Send it as the **`x-api-key`** request header on **every** OTA call. No login call, no token in the payload.
+3. Keys stay valid **until revoked or replaced** — no expiry, no refresh.
+
+Implications for a Worker build (all simpler than the old session):
+- **No token cache, no re-login, no `LoginOK` call.** Auth is now as simple as Jucy's static key — just a header.
+- The old `EchoToken` in the request body is **gone** — remove it from every payload.
+- Keep the API key in **Worker secrets** (Secrets Store), never in a repo or these docs.
+
+<Note>
+The earlier session model (`LoginOK` → JWT → `EchoToken`) is **deprecated**. The "NEW API Technical Documentation" still contains stale per-call cURL examples using the old `otautils` host and an EchoToken — ignore those; Guide D and the sample cURL are the current word on auth.
+</Note>
 
 ## Common request parameters
 
-Carried on OTA requests (SOAP body). The one that matters most is `EchoToken`.
+Auth is the `x-api-key` **header** (above). The rest ride in the SOAP body:
 
 | Parameter | Meaning |
 |---|---|
-| `EchoToken` | The JWT from `LoginOK`. Access token; invalid → `unauthorized`. |
-| `Target` | `Production` for live, `Test` for test. Advisory (identifies request origin). |
+| `Target` | `Production` for live, `Test` for test. Advisory only — identifies request origin. |
 | `Version` | Message version (e.g. `1`). |
+| `MaxResponses` | Cap on results returned (e.g. `3`). |
 | `TimeStamp` | When the request was sent. |
-| `POS` / `Source` | Point of sale: `AgentSine` / `ERSP_UserID` carry the Trade Partner / Agent ID; `RequestorID` `Type` = `22`, `ID` = agent code (e.g. `DEMOPARTAG`). |
+| `POS` / `Source` | Point of sale: `RequestorID` `Type` = `22` (default), `ID` = agent code. |
 | `ISOCountry` | e.g. `AU`. If omitted, OTA returns defaults (VehAvailRate defaults to `GP`). Passing it null/empty throws an error. |
 
-**Headers:** `UserAgent` and `Content-Type` are mandatory; `SOAPAction` is optional (but SOAP 1.1 typically wants it, e.g. `http://www.thlrentals.com/Aurora/OTA/LoginOk`).
+**Headers:** `UserAgent`, `Content-Type` (`text/xml`) and **`x-api-key`** are mandatory; `SOAPAction` is optional (but SOAP 1.1 typically wants it, e.g. `http://www.thlrentals.com/Aurora/OTA/VehAvailRate`).
 
 ## Brands
 

@@ -25,6 +25,7 @@ THL uses the standard OpenTravel vehicle message set. Each is a `…RQ`/`…RS` 
 One call does search *and* pricing.
 
 - **Dates are date-only.** `PickUpDateTime` / `ReturnDateTime` are `yyyy-mm-ddThh:mm:ss`, but **the time component is ignored by design** ("to keep consistency with the Motek App"). This is the key contrast with RCM, where time moves pricing and we maintain a probe-time workaround — THL needs none of that.
+  <Note>The "NEW API Technical Documentation" (Nov 2026) lists an optional **"targeted date and time (exact time) search"** under VehAvailRate's *Other Features*. If real, THL now *can* search by exact time — verify on staging whether it's opt-in and whether it moves pricing (as RCM's does) before relying on date-only.</Note>
 - **Locations** are Motek branch codes (`LocationCode` + `CodeContext`), e.g. `AKL` — see Appendix B.
 - **Rate status** — `Status=Available` (net) or `Status=Gross`.
 
@@ -34,6 +35,7 @@ THL exposes several levers in `VehAvailRate`:
 
 | Lever | Field | Behaviour |
 |---|---|---|
+| Brand (by name) | `VendorPrefs` → `VendorPref` `CompanyShortName` | Brand short name + `PreferLevel="Only"` (e.g. `Maui`). From the Nov 2026 sample cURL — a cleaner single-brand lever than the `ClassPref` code. |
 | Single brand | `VehPref` → `ClassPref` `Code` | One brand code (`A`/`B`/`E`/`M`/`Y`/`R`/`D`). |
 | Multiple brands | `RateQualifier` | Acts as a brand filter; supports **multiple** brands (AU/NZ qualifier codes e.g. `BRITZN`, `MIGHTY`, `DMIGHTY`). |
 | Berth / size | `VehType` `VehicleCategory` | `V2`–`V6` = "n berth **or above**". Recommend `V2` to return everything. |
