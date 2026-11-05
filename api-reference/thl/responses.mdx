@@ -1,0 +1,194 @@
+---
+title: "Calls & responses"
+description: "THL Aurora OTA end to end: the order you call the messages in, how they chain by id, and what each response actually contains — with trimmed real examples."
+---
+
+<Note>
+Grounded in THL's "NEW API Technical Documentation" sample payloads (Nov 2026). Still **scoping, not confirmed by a live call** — field names and shapes are from THL's own samples; confirm on staging. Credentials, ids and prices are illustrative.
+</Note>
+
+Every call is a SOAP envelope to `…/xml`, authenticated with the `x-api-key` header (see [Introduction](/api-reference/thl/introduction)). The messages chain by **two ids**:
+
+- **`AvailableVehicleId`** — a GUID returned per vehicle by `VehAvailRate`. It's the handle you book.
+- **`ConfID`** — the booking reference returned by `VehRes` (e.g. `DIT348644/1`). It's the handle for everything after booking.
+
+## Call order
+
+```
+VehAvailRate ──▶ (AvailableVehicleId)
+     │
+     ├──▶ GetExtraHireItems   (optional: list insurance + extras for the quote)
+     │
+     ▼
+  VehRes  ──▶ (ConfID)        ← book, using AvailableVehicleId + customer
+     │
+     ├──▶ VehAddExtra         (optional: add extras to the booking)
+     ├──▶ VehModify           (optional: change pax / add a note)
+     ├──▶ VehRetRes           (retrieve the full reservation)
+     └──▶ VehCancel           (cancel; returns the fee charged)
+```
+
+| # | Call | You send | You get back (the handle) |
+|---|---|---|---|
+| 1 | **`VehAvailRate`** | dates, locations, brand/berth filters | vehicles + rates, each with an **`AvailableVehicleId`** |
+| 2 | **`GetExtraHireItems`** | `sAvailabilityRef` *or* `BookingReference` | insurance + extra-hire products |
+| 3 | **`VehRes`** | `AvailableVehicleId` + customer | the booking + its **`ConfID`** |
+| 4 | **`VehAddExtra`** | `ConfID` + product code(s) | updated booking |
+| 5 | **`VehModify`** | `ConfID` + changes | updated booking |
+| 6 | **`VehRetRes`** | `ConfID` | the full reservation |
+| 7 | **`VehCancel`** | `ConfID` | the **cancellation fee** charged |
+
+---
+
+## 1. `VehAvailRate` — availability + rates
+
+One call does search **and** pricing. The response is nested **per brand (`Vendor`) → per vehicle (`VehAvail`)**.
+
+**What each vehicle carries:**
+
+| Field | Example | Meaning |
+|---|---|---|
+| `Vendor` `CompanyShortName` / `Code` | `Hippie Camper` / `H` | The brand. One response spans several brands. |
+| `VehMakeModel` `Name` / `Code` | `Hippie Hitop Camper` / `AUHIPPYH` | Vehicle name + product code. |
+| `VehType` `VehicleCategory` | `V2` | Berth bucket (V2–V6). |
+| `VehClass` `Size` | `2` | Berth count. |
+| `PictureURL` | *(empty)* | **Always empty** — no image delivered. |
+| `VehicleCharge` | `Amount="1167"` `CurrencyCode="AUD"` | Rental charge (+ `Calculation` day × rate, `Taxes`). |
+| `RateQualifier` / `PromoDesc` | `HIPPIEN` / `Hippie Flex Nett` | Rate plan / promo applied. |
+| `TotalCharge` | `RateTotalAmount="1167"` | Total incl. tax. |
+| **`AvailableVehicleId`** | `1f48d862-…-ab491846d44e` | **The id you pass to `VehRes` to book.** |
+| `PaymentRules` → `PaymentRule` | `RuleType="2"` / `"3"` | Deposit vs balance split (settlement is agent-on-account). |
+| `CancellationRules` | `LeadTo="59"` `Amount` `FeeValue="100"` | The cancellation-fee ladder, by days before pickup. |
+| `Warnings` → `Warning` | `Limited Availability : 2BB` | Per-vehicle availability notes. Keyed `<name> : <code>`. |
+| `PickUp/ReturnLocation` `InformationURL` | `britz.com/.../sydney` | Branch page link (a content hook, even though `PictureURL` is empty). |
+
+```xml
+<VehVendorAvail>
+  <Vendor CompanyShortName="Hippie Camper" Code="H">Hippie Camper Campervan Rentals</Vendor>
+  <VehAvail>
+    <VehAvailCore Status="Available">
+      <Vehicle>
+        <VehType VehicleCategory="V2"/>
+        <VehClass Size="2"/>
+        <VehMakeModel Name="Hippie Hitop Camper" Code="AUHIPPYH"/>
+        <PictureURL/>
+      </Vehicle>
+      <RentalRate>
+        <VehicleCharges>
+          <VehicleCharge CurrencyCode="AUD" TaxInclusive="true" Amount="1167" Purpose="1">
+            <Calculation UnitName="Day" Quantity="8" UnitCharge="145.88"/>
+            <Taxes><Tax Name="GST" Percentage="10" Amount="106.09"/></Taxes>
+          </VehicleCharge>
+        </VehicleCharges>
+        <RateQualifier PromotionCode="HIPPIEN" RateQualifier="H8"><PromoDesc>Hippie Flex Nett</PromoDesc></RateQualifier>
+      </RentalRate>
+      <TotalCharge RateTotalAmount="1167" CurrencyCode="AUD" EstimatedTotalAmount="1167"/>
+      <TPA_Extensions>
+        <AvailableVehicleId>1f48d862-ecd6-4e2a-acd7-ab491846d44e</AvailableVehicleId>
+      </TPA_Extensions>
+    </VehAvailCore>
+    <VehAvailInfo><TPA_Extensions><PaymentRules>
+      <PaymentRule CurrencyCode="AUD" RuleType="2" Amount="1167"/>
+      <PaymentRule CurrencyCode="AUD" RuleType="3" Amount="0"/>
+    </PaymentRules></TPA_Extensions></VehAvailInfo>
+    <CancellationRules>
+      <CancellationRule Operator="GreaterThan" LeadTo="59" CancellationType="Amount" FeeValue="100"/>
+      <CancellationRule Operator="Between" LeadFrom="59" LeadTo="30" CancellationType="Percentage" FeeValue="20"/>
+    </CancellationRules>
+  </VehAvail>
+</VehVendorAvail>
+```
+
+<Note>
+The `Vendor` list is **broader than the five core brands**: the AU samples include Apollo-group brands like **Hippie Camper** and **Cheapa** alongside Apollo. Map by `Vendor Code`, don't assume only M/B/Y/A/L.
+</Note>
+
+## 2. `GetExtraHireItems` — insurance + extras
+
+Keyed to a quote (`sAvailabilityRef`) or a booking (`BookingReference`). This is the one place **rich descriptions do come back** — each product has an HTML `Note`.
+
+| Field | Example | Meaning |
+|---|---|---|
+| `Product` `Code` / `Name` | `ALLINCHN` / `Hippie Camper Value Pack Partner` | Product id + label. |
+| `dailyRate` / `GrossAmt` / `NettAmt` | `27.6` / `248.4` / `248.4` | Pricing (net is what we mark up). |
+| `NettDailyRate`, `MaxCharge`, `MaxQuantity` | `27.6`, `0`, `1` | Rate + caps. |
+| `MinAge` / `MaxAge` | `""` | Age limits, if any. |
+| `IsInclusive` / `IsCuscharge` / `IsDTR` | `No` / `Yes` / `No` | Flags (inclusive in rate, customer charge, drive-the-rate). |
+| `SapId` | `1455603f-…` | Product GUID. |
+| `Note` `NteDesc` | `<p><strong>Inclusions are:…` | HTML description (insurance inclusions, extra details). |
+
+Grouped as `ConfigurationProducts` → `Insurance` (coverage products, e.g. `ALLINCHN`, `LR2HR`) and `ExtraHireItems` (e.g. `Drop and Go`).
+
+## 3. `VehRes` — book
+
+Send the `AvailableVehicleId` + customer. Returns the reservation with its **`ConfID`** — the booking reference you keep.
+
+| Field | Example | Meaning |
+|---|---|---|
+| **`ConfID`** `ID` | `DIT348644/1` | **Booking reference.** Handle for all later calls. |
+| `Customer` → `PersonName` | `Nicole Sample` (`Mrs`) | The lead customer echoed back. |
+| `VehSegmentCore` → `VehRentalCore` | dates + `LocationCode` | The confirmed rental segment. |
+| `Vehicle` | `VehMakeModel`, `VehClass` | The booked vehicle. |
+
+```xml
+<VehReservation>
+  <Customer><Primary><PersonName>
+    <GivenName>Nicole</GivenName><Surname>Sample</Surname><NameTitle>Mrs</NameTitle>
+  </PersonName></Primary></Customer>
+  <VehSegmentCore>
+    <ConfID Type="1" ID="DIT348644/1"/>
+    <VehRentalCore PickUpDateTime="2024-02-01T14:00:00" ReturnDateTime="2024-02-14T12:00:00">
+      <PickUpLocation LocationCode="LCY" CodeContext="London">GB</PickUpLocation>
+    </VehRentalCore>
+    <Vehicle><VehType VehicleCategory="V2"/><VehClass Size="4"/>
+      <VehMakeModel Name="Voyager - 4 berth motorhome with rear island bed" Code=""/></Vehicle>
+  </VehSegmentCore>
+</VehReservation>
+```
+
+<Note>Payment is **agent-on-account** — `VehRes` creates the booking against the account; there's no payment capture or Stripe link. The `PaymentRules` on availability describe the deposit/balance split, settled off-API.</Note>
+
+## 4–5. `VehAddExtra` / `VehModify` — amend
+
+Both take the `ConfID` and return the updated reservation (note these respond with `Version="0"`).
+
+- **`VehAddExtra`** — attach extra-hire items (from `GetExtraHireItems`) to the booking.
+- **`VehModify`** — change number of adults/children, attach a note. Documented validation rules govern what may change.
+
+## 6. `VehRetRes` — retrieve
+
+Takes the `ConfID`; returns the **fullest record** — customer, vendor, segment, vehicle, and the full `RentalRate` (incl. `RateDistance Unlimited="true"`, charges, `DecimalPlaces`).
+
+```xml
+<VehSegmentCore>
+  <ConfID Type="JFL715002-1" ID="1"/>
+  <Vendor CompanyShortName="Hippie Camper" Code="H"/>
+  <VehRentalCore PickUpDateTime="2024-01-21T09:00:00" ReturnDateTime="2024-01-29T15:00:00">
+    <PickUpLocation LocationCode="SYD" CodeContext="Sydney">AU</PickUpLocation>
+  </VehRentalCore>
+  <Vehicle><VehMakeModel Name="Hippie Hitop Camper" Code="AUHIPPYH"/></Vehicle>
+  <RentalRate><RateDistance Unlimited="true" DistUnitName="Mile" VehiclePeriodUnitName="Day"/> … </RentalRate>
+</VehSegmentCore>
+```
+
+## 7. `VehCancel` — cancel
+
+Takes the `ConfID`; returns the **fee actually charged** (not just the ladder).
+
+```xml
+<VehCancelRSCore>
+  <CancellationFees>
+    <CancellationFee CurrencyCode="AUD" TaxInclusive="true" Description="Cancellation Fee" Amount="280.00">
+      <Taxes><Tax Name="GST" Percentage="10" Amount="25.45" CurrencyCode="AUD"/></Taxes>
+    </CancellationFee>
+  </CancellationFees>
+</VehCancelRSCore>
+```
+
+---
+
+## Every response shares these
+
+- `<Success/>` on success; errors come back as `<Error Type="…" ShortText="…" Code="badRequest"/>` (e.g. *"Your search has expired. Please restart your search to continue."*).
+- `<Warnings>` is **advisory, not failure** — e.g. a scheduled-downtime notice, or per-vehicle "Limited Availability". A response can be `Success` *and* carry warnings.
+- Money fields carry `CurrencyCode` (AU→`AUD`, NZ→`NZD`) and sometimes `DecimalPlaces` — parse by the decimal places sent, don't assume a scale.

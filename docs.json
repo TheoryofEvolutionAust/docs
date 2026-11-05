@@ -89,7 +89,8 @@
             "group": "THL (Aurora OTA) API",
             "pages": [
               "api-reference/thl/introduction",
-              "api-reference/thl/booking-flow"
+              "api-reference/thl/booking-flow",
+              "api-reference/thl/responses"
             ]
           },
           {
