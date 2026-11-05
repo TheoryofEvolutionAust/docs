@@ -83,9 +83,33 @@ One login covers all five AU/NZ brands. Each availability result carries the veh
 
 US (`Road Bear RV` `R`, `El Monte RV` `E`, `Mighty` `Y`) and Canada (`CanaDream` `D`) are separate region lists.
 
+<Note>
+The `Vendor` list in a `VehAvailRate` response is **broader than these five** — the AU samples also carry Apollo-group brands like **Hippie Camper** (`H`) and **Cheapa**. Map by the `Vendor Code` the response gives, don't hardcode the five.
+</Note>
+
+Note also that THL's only "category" dimension on a vehicle is the **berth bucket** `VehType VehicleCategory` (`V2`–`V6`) — there is no named Campervan/Car/Motorhome type in the response; brand is the real axis.
+
 ## Rates are net
 
 *"All ATL brands are net rate."* Request `Status=Available` for net (what we mark up) or `Status=Gross` for gross. Net rate means TransportSOA applies the margin, consistent with the WebsiteTravel model.
+
+## Currency
+
+Every money field carries a `CurrencyCode`, set by the **rental's country** — there is no "price me in X" lever.
+
+| Country | Currency |
+|---|---|
+| Australia | `AUD` |
+| New Zealand | `NZD` |
+
+(The US/CA brands use `USD` / `CAD`, out of scope here.) For the AU/NZ build the currency is effectively a **region key** — `AUD` → the AU side, `NZD` → the NZ side; confirm the CMS has matching regions, and there's no FX. Amounts may carry a `DecimalPlaces` attribute (e.g. `2`) — **parse by the places sent**, don't assume a scale, or you misprice by 100×. The US samples show mixed currencies in one rental; not a concern for AU/NZ, but don't assume one currency per response.
+
+## Locations &amp; office hours
+
+THL has **no "list locations / hours" call**. Location data comes from two places:
+
+- **The static list** — Appendix B (Motek branch codes + brands).
+- **Embedded in responses** — a `VehAvailRate` location carries an `InformationURL` (the brand's branch page), and a `VehRetRes` reservation carries the depot `Address` and `OperationSchedules` (the office/operation hours). So address and hours *are* available, but only attached to a search or a retrieved booking, not as a reference feed.
 
 ## Product content is out-of-band
 

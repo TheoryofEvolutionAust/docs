@@ -157,7 +157,7 @@ Both take the `ConfID` and return the updated reservation (note these respond wi
 
 ## 6. `VehRetRes` — retrieve
 
-Takes the `ConfID`; returns the **fullest record** — customer, vendor, segment, vehicle, and the full `RentalRate` (incl. `RateDistance Unlimited="true"`, charges, `DecimalPlaces`).
+Takes the `ConfID`; returns the **fullest record** — customer, vendor, segment, vehicle, and the full `RentalRate` (incl. `RateDistance Unlimited="true"`, charges, `DecimalPlaces`). It also carries the depot **`Address`** and **`OperationSchedules`** (office/operation hours) for the location — the one place THL returns depot hours, since there's no standalone list-locations call.
 
 ```xml
 <VehSegmentCore>
