@@ -165,7 +165,8 @@ Implementation notes (from the endpoint spec):
 - **Honour `active`** — a product flipping inactive should drop out of the sell set.
 - **Page** with `recordStart`/`recordLength` (compare `fetchedRecords` vs `totalRecords`) for the rare bulk update.
 - **Coerce `totalRecords`** — declared `String`, returned as a number.
-- **Brand-new product edge** — one added between refreshes has no cached margin for up to the interval; either accept it (self-heals next cycle, cosmetic) or keep a one-off lazy `/product/{id}/prices` fetch on a cache miss.
+- **Surfaced and set in the Sync UI** — the stored margin is shown per product and set/confirmed when a product is configured. A product is **not sellable without a fare** (its `rrp`/`netRate`), so a margin exists by construction the moment the product exists — there is no "product without a margin" state to handle. The UI can also refresh that product's margin on save, so a just-configured product is warm immediately.
+- **Brand-new product edge mostly dissolves** — because the fare is mandatory at creation and that creation is itself an update the delta endpoint reports, a new product is picked up on the next poll (or on save). A lazy `/product/{id}/prices` fetch on a cache miss is then optional belt-and-braces, not a requirement.
 
 Send that `gross` + `commission`, and **record `thlNet` as the operator cost**. Because the net is carried through directly (not re-derived from gross), what we owe the operator is always THL's real net — a margin discrepancy can only ever move the sell price, never the settlement. By convention the CMS margin equals THL's margin, so the sell price is right too.
 
