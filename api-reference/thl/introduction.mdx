@@ -106,6 +106,15 @@ The response's `RateCategory` confirms which came back (`1` = Gross, `0` = Net).
 This is a different pricing model from our other two suppliers. **Jucy and RCM are a commission model** — they return a gross/retail rate **plus an `agentCommission`**, and net is derived (gross − commission). **THL returns net directly** and has no commission concept; gross is just the alternate `Status`.
 </Note>
 
+### Feeding TDMS, which expects gross
+
+TDMS expects TransportSOA to send a **gross** sell price (with commission), exactly as Jucy and RCM already do. THL gives us net and **no bridge** to gross — one response never yields the other, and there is no commission field — so for THL we have to *produce* the gross. Two ways:
+
+- **Default: apply a WebsiteTravel margin to net** (one `Status=Available` call). `gross = net + margin`, and the commission we report **is** that margin. This fits the existing "net rate, we add the margin" model — but the margin is a **new THL config input**, because Jucy's/RCM's commission is supplier-set and varies by key, whereas THL's is ours to define.
+- **Alternative: honour THL's own RRP** (two calls — `Available` + `Gross`). Send THL's `Status=Gross` as the gross and set `commission = gross − net`. Only worth it if TDMS must show THL's published retail; costs a second call and reconciling two responses.
+
+Either way TDMS receives gross + commission. The real difference from Jucy/RCM: **their commission is the operator's** (per-key), **THL's is ours to define** — so a THL build needs a margin rule that the other two suppliers never required.
+
 ## Currency
 
 Every money field carries a `CurrencyCode`, set by the **rental's country** — there is no "price me in X" lever.
