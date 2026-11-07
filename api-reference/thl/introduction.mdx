@@ -146,6 +146,27 @@ commission  = gross − thlNet
 
 **Use the ratio, not a stored percentage** — `rrp/netRate` is convention-agnostic, so "25% on RRP" vs "33% on net" can't be misread into a wrong price. It reconciles by construction.
 
+### Keeping the cached margins fresh — delta refresh, not per-search
+
+Don't look the margin up per search. **Cache every THL product's margin** and refresh it on a timer with the product-delta endpoint:
+
+```
+GET /apiv1/products/lastUpdate?productIds=<THL set>&updatedAfter=<watermark>&sortBy=lastUpdated&sortDirection=desc
+```
+
+It returns only the products changed since the watermark — `{ productId, lastUpdated, active }`. For each changed id, refetch its prices, recompute the margin, and advance the watermark to the newest `lastUpdated` seen. Run it **hourly** (or on the sync cron).
+
+Why this over a per-search lookup: the guest search then does **zero** price calls, and CMS load is one predictable hourly batch instead of search-driven traffic. The per-search lookup is otherwise **sequential** — you only know which `productId`s to price *after* `VehAvailRate` returns the Codes, so it can't overlap the availability call; pre-warming removes that round-trip from the critical path. Staleness is bounded by the interval and is **cosmetic** (sell price only — settlement always uses THL's real net), so an hour or two is fine.
+
+Implementation notes (from the endpoint spec):
+
+- **URL-encode the `+`** in `updatedAfter` as `%2B` — a literal `+` in a query string decodes to a space (e.g. `2026-02-13T00:00:00%2B0000`). Same gotcha the Worker already handles for TDMS dates.
+- **Watermark from the data, not the clock** — advance it to the max `lastUpdated` processed, not local "now", to avoid skew and missed records.
+- **Honour `active`** — a product flipping inactive should drop out of the sell set.
+- **Page** with `recordStart`/`recordLength` (compare `fetchedRecords` vs `totalRecords`) for the rare bulk update.
+- **Coerce `totalRecords`** — declared `String`, returned as a number.
+- **Brand-new product edge** — one added between refreshes has no cached margin for up to the interval; either accept it (self-heals next cycle, cosmetic) or keep a one-off lazy `/product/{id}/prices` fetch on a cache miss.
+
 Send that `gross` + `commission`, and **record `thlNet` as the operator cost**. Because the net is carried through directly (not re-derived from gross), what we owe the operator is always THL's real net — a margin discrepancy can only ever move the sell price, never the settlement. By convention the CMS margin equals THL's margin, so the sell price is right too.
 
 Watch-outs: use only `status = "Live"` fares (ignore `Draft`); match `currency` to THL's; **guard a zero/absent `netRate`** (undefined ratio → flag, never divide); it's a **ratio** so the margin % stays constant as the live net moves (a flat `rrp − netRate` add-on would not); the lookup can be **cached per `productId`** (prices change rarely); and it depends on the **THL `Code` → `productId` mapping** (reference-data work a THL build needs anyway).
