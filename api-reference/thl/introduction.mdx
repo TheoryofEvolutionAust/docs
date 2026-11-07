@@ -115,7 +115,9 @@ TDMS expects TransportSOA to send a **gross** sell price (with commission), exac
 
 Either way TDMS receives gross + commission. The real difference from Jucy/RCM: **their commission is the operator's** (per-key), **THL's is ours to define** — so a THL build needs a margin rule that the other two suppliers never required.
 
-**Watch the margin doesn't end up in two places.** CMS normally stores the applied margin and uses it to work out what WebsiteTravel pays the operator. For Jucy/RCM that figure is supplier-authoritative — the commission comes back in the response, so nothing drifts. For THL the margin is ours, so it would live both where TransportSOA applies it (net → gross) **and** where CMS stores it (gross → operator payment); if the two ever diverge, CMS's operator-payment figure stops matching THL's actual net and **we mis-pay the operator**, silently. Mitigation: **single-source the margin** (one config both systems read) and **carry `commission` in the response** (`commission = gross − net`) so CMS reconciles from what TransportSOA sent, not a separately-stored value — exactly how Jucy/RCM already behave.
+**The commission is a % of RRP, set by the operator** — that's the WebsiteTravel model for every supplier: the agent earns that %, and `net-to-operator = RRP − commission`. Jucy/RCM hand us that commission in the response; THL doesn't, so we reconstruct the % from CMS (next).
+
+**Settlement stays correct even if a margin ever disagreed.** We **record THL's actual net as what we owe the operator**, carried straight through — not back-computed from gross. So if a stored margin ever differed from THL's real commercial margin, the operator is still paid their exact net (no accounting headache); a mismatch could only change the *displayed sell price*, never the settlement. By convention the CMS margin equals THL's margin anyway, so single-sourcing it from CMS (next) keeps the sell price right too.
 
 ### Proposed approach — read the margin from CMS's product prices
 
@@ -144,7 +146,7 @@ commission  = gross − thlNet
 
 **Use the ratio, not a stored percentage** — `rrp/netRate` is convention-agnostic, so "25% on RRP" vs "33% on net" can't be misread into a wrong price. It reconciles by construction.
 
-Send that `gross` + `commission`. Because CMS works out operator payment as `gross × netRate/rrp`, it collapses back to THL's live net exactly — so **we pay the operator THL's real net, with no value stored in two places**.
+Send that `gross` + `commission`, and **record `thlNet` as the operator cost**. Because the net is carried through directly (not re-derived from gross), what we owe the operator is always THL's real net — a margin discrepancy can only ever move the sell price, never the settlement. By convention the CMS margin equals THL's margin, so the sell price is right too.
 
 Watch-outs: use only `status = "Live"` fares (ignore `Draft`); match `currency` to THL's; **guard a zero/absent `netRate`** (undefined ratio → flag, never divide); it's a **ratio** so the margin % stays constant as the live net moves (a flat `rrp − netRate` add-on would not); the lookup can be **cached per `productId`** (prices change rarely); and it depends on the **THL `Code` → `productId` mapping** (reference-data work a THL build needs anyway).
 
