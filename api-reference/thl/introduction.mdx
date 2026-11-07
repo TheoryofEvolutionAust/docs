@@ -165,6 +165,7 @@ Why this over a per-search lookup: the guest search then does **zero** price cal
 Implementation notes:
 
 - **Which API + creds** — both the `price` and `lastUpdate` calls are on the **Agent / Reseller API** (the same API agents use — see its section in these docs), not THL. Its credentials are **already in the account Secrets Store**; read them via a binding (`await env.X.get()`, the same pattern as `BREVO_API_KEY`) — no new credential to provision, just add the binding. So the pricing side is a small REST/JSON client to an internal WebsiteTravel API.
+- **The `productId` set + `Code`→`productId` mapping come from `worker-wt-product-sync`.** Its D1 registry (the 66-vehicle Appendix-A catalogue + `product_links`) is the authoritative list of which THL products exist and their CMS `productId`s. transportsoa's margin-refresh reads that set (the linked/live rows) to drive the `lastUpdate` poll, and reuses the same `Code`→`productId` mapping to join a `VehAvailRate` result to its CMS product at search time. Consume it via a read-only D1 binding or a small endpoint — implementation TBD.
 - **URL-encode the `+`** in `updatedAfter` as `%2B` — a literal `+` in a query string decodes to a space (e.g. `2026-02-13T00:00:00%2B0000`). Same gotcha the Worker already handles for TDMS dates.
 - **Watermark from the data, not the clock** — advance it to the max `lastUpdated` processed, not local "now", to avoid skew and missed records.
 - **Honour `active`** — a product flipping inactive should drop out of the sell set.
