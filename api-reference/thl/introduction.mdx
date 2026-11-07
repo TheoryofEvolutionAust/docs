@@ -89,9 +89,22 @@ The `Vendor` list in a `VehAvailRate` response is **broader than these five** �
 
 Note also that THL's only "category" dimension on a vehicle is the **berth bucket** `VehType VehicleCategory` (`V2`–`V6`) — there is no named Campervan/Car/Motorhome type in the response; brand is the real axis.
 
-## Rates are net
+## Rates — net by default, gross (RRP) on request
 
-*"All ATL brands are net rate."* Request `Status=Available` for net (what we mark up) or `Status=Gross` for gross. Net rate means TransportSOA applies the margin, consistent with the WebsiteTravel model.
+THL's AU/NZ brands are **net rate** by default — *"All ATL brands are net rate"* — so TransportSOA applies the margin, consistent with the WebsiteTravel model. The rate type is a **mandatory `Status`** request parameter, and you get **one or the other per call**, never both at once:
+
+| `Status` | Vehicle rate returned |
+|---|---|
+| `Available` | **Net** (what we mark up) |
+| `Gross` | **Gross** — the RRP |
+
+The response's `RateCategory` confirms which came back (`1` = Gross, `0` = Net). To show both net *and* RRP you'd make two calls, or take net and add the margin.
+
+**Extras and insurance are different** — `GetExtraHireItems` returns **both** `GrossAmt` and `NettAmt` on every product, side by side (in THL's samples they're equal, but the fields carry both).
+
+<Note>
+This is a different pricing model from our other two suppliers. **Jucy and RCM are a commission model** — they return a gross/retail rate **plus an `agentCommission`**, and net is derived (gross − commission). **THL returns net directly** and has no commission concept; gross is just the alternate `Status`.
+</Note>
 
 ## Currency
 
