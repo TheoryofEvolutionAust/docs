@@ -150,6 +150,8 @@ commission  = gross − thlNet
 
 ### Keeping the cached margins fresh — delta refresh, not per-search
 
+**At search time**, the THL branch of the transportsoa fan-out makes **one `VehAvailRate` call for all brands** (one key covers all five AU/NZ brands; filter by `Vendor` client-side if needed), then applies the **cached** margin to each returned vehicle to produce `gross` + `commission`, and merges with the Jucy/RCM results before returning to TDMS. So the whole THL element is a single supplier call, same shape as the other branches — and the margin must be a **warm cache read, never a live call on the critical path**, which is the whole reason to pre-refresh it.
+
 Don't look the margin up per search. **Cache every THL product's margin and PPDID** and refresh them on a timer with the product-delta endpoint:
 
 ```
@@ -168,8 +170,7 @@ Implementation notes:
 - **Honour `active`** — a product flipping inactive should drop out of the sell set.
 - **Page** with `recordStart`/`recordLength` (compare `fetchedRecords` vs `totalRecords`) for the rare bulk update.
 - **Coerce `totalRecords`** — declared `String`, returned as a number.
-- **Surfaced and set in the Sync UI** — the stored margin (and PPDID) are shown per product and set/confirmed when a product is configured; the UI can refresh that product on save so it's warm immediately.
-- **The cache is a shared store — the admin UI is a separate codebase.** The Sync UI is built by a different project/session, so the margin cache can't be Worker-local memory: put it where both sides reach it. **Prefer D1 over KV** — the margin is a curated per-product value (sync-written from CMS, human-settable in the UI), the same shape as the `fleet_type.ts_transport_name` curation already in D1, and the admin portal already targets D1; it's also queryable for the UI's list/edit screens. KV suits a pure read-cache, not a two-writer human-edited table. Treat the table as a **cross-session contract** — agree the shape (keyed by `productId`: margin ratio, `ppdid`, currency, `active`, last-synced) so both codebases build to it. Decide precedence between a sync refresh (from CMS) and a UI edit; since we record THL's real net, any divergence is sell-price-cosmetic, never an accounting issue.
+- **Where the margin lives — and where it doesn't.** The margin's *source* is a **manual CMS fare** — on a live product the fare is a **margin carrier, not a price** (e.g. the live Spaceships fare is RRP 1.00 / Net 0.78 = 22%, plus an agent-pricing-group row), set by a person at product config. `worker-wt-product-sync` (the content sync) **deliberately does not touch `/price`** — it is content-only. So the margin **read + cache + refresh is `worker-transportsoa`'s job** — it's the consumer that needs gross. Cache the margin (+ `ppdid`) in **transportsoa's own store**: **KV** suffices for a pure search read-cache, **D1** if the Sync UI will also query it to display. The Sync UI may *display* the margin but does not own or write it.
 - **No "product without a margin" state — enforced, not hoped for.** Support **cannot push a product live without an actual fare** (its `rrp`/`netRate`), so a live product always has a margin and a PPDID by construction. The brand-new-product edge therefore can't occur, and the lazy `/product/{id}/price` fetch on a cache miss is unnecessary — keep it only as defensive belt-and-braces if at all.
 
 Send that `gross` + `commission`, and **record `thlNet` as the operator cost**. Because the net is carried through directly (not re-derived from gross), what we owe the operator is always THL's real net — a margin discrepancy can only ever move the sell price, never the settlement. By convention the CMS margin equals THL's margin, so the sell price is right too.
