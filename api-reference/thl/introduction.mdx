@@ -48,7 +48,7 @@ THL **replaced the login/token session** with a static API key (Guide D, Nov 202
 Implications for a Worker build (all simpler than the old session):
 - **No token cache, no re-login, no `LoginOK` call.** Auth is now as simple as Jucy's static key — just a header.
 - The old `EchoToken` in the request body is **gone** — remove it from every payload.
-- Keep the API key in **Worker secrets** (Secrets Store), never in a repo or these docs.
+- Keep the API key as a **per-Worker secret** (set out of band with `wrangler secret put`, the same as `JUCY_API_KEY` and the RCM keys — read synchronously as `env.THL_API_KEY`, *not* an account Secrets Store binding), never in a repo or these docs.
 
 <Note>
 The earlier session model (`LoginOK` → JWT → `EchoToken`) is **deprecated**. The "NEW API Technical Documentation" still contains stale per-call cURL examples using the old `otautils` host and an EchoToken — ignore those; Guide D and the sample cURL are the current word on auth.
