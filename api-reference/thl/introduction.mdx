@@ -40,7 +40,9 @@ THL's docs are mid-transition and inconsistent: the "NEW API Technical Documenta
 - **No `x-api-key`** → `401 {"message":"Unauthorized"}`.
 - **Invalid `x-api-key`** → `403 {"Message":"User is not authorized to access this resource with an explicit deny in an identity-based policy"}`.
 
-So a **403 with that capital-`Message` body means the key was sent but rejected** (same as a bogus key) — a bad/not-provisioned key, *not* a wrong endpoint. The key is issued/managed in **Motek B2B**; "one key works both hosts" (Guide D) is **still unverified** — a key may need enabling for the staging host specifically.
+So a **403 with that capital-`Message` body means the key was sent but rejected** (same as a bogus key) — a bad/not-provisioned key, *not* a wrong endpoint. The key is issued/managed in **Motek B2B**.
+
+**"One key works both hosts" (Guide D) is confirmed FALSE (2026-11-08).** Our first-issued key **authenticates against production** (`https://api.thlonline.com/xml` returned a real `OTA_VehAvailRateRS`) but is **rejected on staging** (`api-staging…/xml` → the bogus-key 403). So a key is **host-scoped** — a staging key must be enabled for the staging host specifically. Plan for a **separate key per host**, and don't assume a prod key unlocks the sandbox.
 </Note>
 
 The underlying rental platform is **"Motek"** — branch/location codes in requests are Motek codes (see Appendix B). The B2B admin that issues the API key is **Motek B2B** (`https://b2bmotek.thlonline.com`; older portal `https://motek.b2b.thlonline.com`).
