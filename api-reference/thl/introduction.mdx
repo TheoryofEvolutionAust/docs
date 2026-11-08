@@ -32,7 +32,15 @@ New hosts, from Guide D (Nov 2026) and the sample cURL — these **supersede** t
 | **Production** | `https://api.thlonline.com/xml` | `…/xml/12` | `…/xml?wsdl`, `…/xml/12?wsdl` |
 
 <Note>
-THL's docs are mid-transition and inconsistent: the "NEW API Technical Documentation" still prints an `.asmx` path on the new hosts, while Guide D and the sample cURL use `/xml`. Treat **`/xml`** as current and confirm on the first staging call.
+THL's docs are mid-transition and inconsistent: the "NEW API Technical Documentation" still prints an `.asmx` path on the new hosts, while Guide D and the sample cURL use `/xml`. **`/xml` is confirmed live (2026-11-08):** `GET https://api-staging.thlonline.com/xml?wsdl` returns the WSDL (HTTP 200, `text/xml`). Ignore the `.asmx` path.
+</Note>
+
+<Note>
+**Staging auth error shapes, confirmed live (2026-11-08)** — the gateway is AWS API Gateway, so errors are JSON, not SOAP faults:
+- **No `x-api-key`** → `401 {"message":"Unauthorized"}`.
+- **Invalid `x-api-key`** → `403 {"Message":"User is not authorized to access this resource with an explicit deny in an identity-based policy"}`.
+
+So a **403 with that capital-`Message` body means the key was sent but rejected** (same as a bogus key) — a bad/not-provisioned key, *not* a wrong endpoint. The key is issued/managed in **Motek B2B**; "one key works both hosts" (Guide D) is **still unverified** — a key may need enabling for the staging host specifically.
 </Note>
 
 The underlying rental platform is **"Motek"** — branch/location codes in requests are Motek codes (see Appendix B). The B2B admin that issues the API key is **Motek B2B** (`https://b2bmotek.thlonline.com`; older portal `https://motek.b2b.thlonline.com`).
