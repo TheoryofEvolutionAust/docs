@@ -132,6 +132,26 @@ Edit an existing customer's fields (a GET that mutates). Set field params first,
 - **Optional:** any [CustomerObject](/api-reference/operatorhub/objects#customerobject) field, plus tag groups (`Tag<GroupID>`)
 - **Response:** the updated `CustomerObject`
 
+## orderaddnote
+
+Append a note to an existing order (a GET that mutates). **Append-only** — there is no edit or delete endpoint, so repeated calls add additional notes rather than replacing the previous one.
+
+- **Required:** `orderid`, `note[note]` (the note text)
+- **Optional:**
+  - `note[onmanifest]` — `1` surfaces the note on the driver's manifest; `0` hides it
+  - `note[onvoucher]` — `1` surfaces the note on the guest's voucher (if ops sends one); `0` hides it
+- **Response:** the updated `OrderObject` (includes the new note in `Notes[]`)
+
+```bash Driver-only note (on manifest, hidden from guest voucher)
+GET /v1/orderaddnote?token=<token>&orderid=10200345&note[note]=Child+seat%3A+1+x+booster+required&note[onmanifest]=1&note[onvoucher]=0
+```
+
+```bash Internal ops note (hidden from both manifest and voucher)
+GET /v1/orderaddnote?token=<token>&orderid=10200345&note[note]=Called+guest+re+pickup+change&note[onmanifest]=0&note[onvoucher]=0
+```
+
+URL-encode the square brackets in `note[note]` / `note[onmanifest]` / `note[onvoucher]` — `URLSearchParams` does this automatically. Because the endpoint is append-only, callers that need to show a chronological record (e.g. check-in flows writing Child Seat preferences) should prefix each note with timestamp + source so ops can read the history, e.g. `[Check-in 2026-11-10 14:33 — Primary] Child seat: 1 x booster required`.
+
 ## checkinview (unversioned)
 
 The check-in manifest for a date. **Unversioned** — no `/v1`, path is `/jsonservice/checkinview/search`.
