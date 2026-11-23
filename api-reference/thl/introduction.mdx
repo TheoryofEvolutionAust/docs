@@ -110,6 +110,10 @@ THL's AU/NZ brands are **net rate** by default — *"All ATL brands are net rate
 
 The response's `RateCategory` confirms which came back (`1` = Gross, `0` = Net). To show both net *and* RRP you'd make two calls, or take net and add the margin.
 
+<Warning>
+**Live finding (2026-11-23, staging) — `Status=Gross` alone returns NO availability.** A real AKL search that returns 30 vehicles at net (`Status=Available`) returns *"no availability"* at `Status=Gross`, for all brands and per single brand (Maui, Britz tested). The net rates come back under `PromotionCode`s all suffixed **`N`** (`MIGHTYN`, `BRITZN`, `APOLLON`, `MAUIN`, `MIGHTYNL`), which suggests **gross is selected by a different `PromotionCode`/`RateQualifier` (the non-`N` brand code), not by `Status` alone** — our request sent an empty `RateQualifier`. UNRESOLVED: either these brands are net-only, or the gross request is under-specified. **Confirm with THL** what request yields the Gross/RRP before relying on a two-call RRP (and before building any gross-vs-net margin monitor). The CMS-margin pricing path does not depend on this.
+</Warning>
+
 **Extras and insurance are different** — `GetExtraHireItems` returns **both** `GrossAmt` and `NettAmt` on every product, side by side (in THL's samples they're equal, but the fields carry both).
 
 <Note>
