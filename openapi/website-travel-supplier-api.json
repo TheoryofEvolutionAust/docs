@@ -2665,8 +2665,9 @@
                     "type": "integer"
                   },
                   "fareTypeCategoryId": {
-                    "description": "ID of Fare Type Category.",
-                    "type": "integer"
+                    "description": "ID of Fare Type Category, matching an `id` from `/{supplierapi}/params/faretypecategories`.\n\nThe field is required, but **`null` is accepted as its value** and creates the fare — verified against a live account on 2026-11-23 (product 89476, price 24166546). This matches what the read endpoints return: `GET /product/{productId}/prices` reports `fareTypeCategoryId` as null for every fare, including fares created through the CMS, so there is usually no id to send back. Send the key with an explicit `null` rather than omitting it.",
+                    "type": "integer",
+                    "nullable": true
                   },
                   "levy": {
                     "description": "Any levy charged on top of RRP at point of travel.",
@@ -2737,6 +2738,15 @@
                     "items": {
                       "type": "integer"
                     }
+                  },
+                  "allowFreeSell": {
+                    "description": "Allow freelance sell.",
+                    "type": "boolean"
+                  },
+                  "productPriceSequence": {
+                    "description": "Sequence of this price within the fare set. Nullable; send `null` to let the CMS place it.",
+                    "type": "integer",
+                    "nullable": true
                   }
                 },
                 "type": "object"
