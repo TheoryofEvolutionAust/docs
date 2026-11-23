@@ -138,21 +138,62 @@ Either way TDMS receives gross + commission. The real difference from Jucy/RCM: 
 Rather than a new TransportSOA margin config (the thing that would drift), read the margin from **CMS's existing stored prices** for the mapped product, so CMS stays the single source:
 
 ```
-GET /{supplierapi}/product/{productId}/price
+GET /{supplierapi}/product/{productId}/prices
 ```
 
 ```json
 {
   "results": [
-    { "productPricesDetailsId": 7001, "fareName": "Adult", "status": "Live",  "currency": "AUD", "rrp": 199, "netRate": 150 },
-    { "productPricesDetailsId": 7002, "fareName": "Child", "status": "Draft", "currency": "AUD", "rrp": 99,  "netRate": 70 }
+    {
+      "productPricesDetailsId": 90010001, "productPriceId": 500201, "productPriceSequence": 0,
+      "fareName": "Adult", "status": "Live",
+      "currency": "AUD", "agentPricingGroupId": null,
+      "rrp": "695.00", "netRate": "521.25", "levy": "0.00", "levyDescription": "",
+      "defaultFare": true, "cprFare": false, "allowFreeSell": false,
+      "periodStart": "2025-08-15", "periodEnd": "2028-03-31",
+      "travelStart": "2026-04-01", "travelEnd": "2028-03-31", "note": null,
+      "bookingSystemMapping": { "productId": "10042_20118", "bookingSystemName": "Generic", "supplierLogin": "10042_ExampleConnection" }
+    },
+    {
+      "productPricesDetailsId": 90010002, "productPriceId": 500201, "productPriceSequence": 0,
+      "fareName": "Adult", "status": "Live",
+      "currency": "AUD", "agentPricingGroupId": 6471,
+      "rrp": "695.00", "netRate": "451.75", "levy": "0.00", "levyDescription": "",
+      "defaultFare": true, "cprFare": true, "allowFreeSell": false,
+      "periodStart": "2025-08-15", "periodEnd": "2028-03-31",
+      "travelStart": "2026-04-01", "travelEnd": "2028-03-31", "note": null,
+      "bookingSystemMapping": { "productId": "10042_20118", "bookingSystemName": "Generic", "supplierLogin": "10042_ExampleConnection" }
+    },
+    {
+      "productPricesDetailsId": 90009000, "productPriceId": 500201, "productPriceSequence": 0,
+      "fareName": "Adult", "status": "History",
+      "currency": "AUD", "agentPricingGroupId": null,
+      "rrp": "650.00", "netRate": "487.50", "levy": "0.00", "levyDescription": "",
+      "defaultFare": false, "cprFare": false, "allowFreeSell": false,
+      "periodStart": "2023-08-22", "periodEnd": "2025-03-31",
+      "travelStart": "2023-09-01", "travelEnd": "2025-03-31", "note": null,
+      "bookingSystemMapping": { "productId": "10042_20118", "bookingSystemName": "Generic", "supplierLogin": "10042_ExampleConnection" }
+    }
   ]
 }
 ```
 
+<Warning>
+**A real `/prices` response is a full fare HISTORY, not a current price** (confirmed from a live capture, 2026-11-23 — a non-THL product, shown for shape). The sample above is trimmed to three rows; a real response returns *many*, and almost every one comes back `"status": "History"` — years of superseded fares, promotions (`RED HOT SPECIAL`, `The Great Aussie Sale`, `OWN BACKYARD 10% SPECIAL`) and Adult/Child variants. **Discard everything that isn't `status: "Live"`** (`History` *and* `Draft`). Only Live fares feed the margin.
+</Warning>
+
+Other things the real payloads confirm — these are **endpoint-shape** facts. The sample captures were **non-THL products shown for shape only**, so treat the field *shapes* as authoritative, not the specific fares or numbers:
+
+- **Amounts are strings** — `"rrp": "695.00"`, `"netRate": "451.75"` — parse them, don't assume numbers (the same stringify-numbers habit TDMS has everywhere).
+- **`agentPricingGroupId` can be `null` *or* a real group id** (e.g. `6471`, `6813`). The `null` rows are the **default pricing group**, and that's the one **our build consumes**. The same fare, same RRP, can appear under several groups at different nets — the shape that makes *Pricing tiers* (below) possible. Whether a given THL product actually uses non-null groups is a CMS-config question these samples don't settle.
+- **Select by group *first*, then default.** Pick `status = "Live"` **and** `agentPricingGroupId = <our group>` (null) **and** `defaultFare: true`, within the live `periodStart/End` + `travelStart/End` window. A product can carry many Live rows (other groups, Child, add-ons, open-dated), so `defaultFare` alone is ambiguous.
+- **`netRate` can be `"0.00"` on a Live fare** — the zero-net guard isn't theoretical; an undefined ratio must be flagged/skipped, never divided.
+- **Dates can be open** — `periodEnd`/`travelEnd` may be `null` (open-dated); don't assume bounded windows.
+- **`bookingSystemMapping`** (present on some rows) links the fare to the booking-system product and the **supplier login** — `"bookingSystemName": "Generic"`, a `supplierLogin`, plus a booking-system `productId`. Relevant to anchoring the booking alongside the PPDID.
+
 These records are **placeholders**: for a supplier-API product like THL the CMS product/price carries only two things that matter — the **margin** (which can differ per product) and a **PPDID** (`productPricesDetailsId`, e.g. `7001`) that the **booking is held against** in CMS. So from this call capture **both** per product, cached together: the margin for pricing, the PPDID to anchor the booking.
 
-The stored amounts are **indicative — what matters is the margin they imply** (e.g. `rrp 100 / net 75` → a **25% margin**). Take the **`Live`** fare in THL's currency and apply that margin to **THL's live net** using the ratio:
+The stored amounts are **indicative — what matters is the margin they imply** (e.g. `rrp 100 / net 75` → a **25% margin**). Take the **`Live` default** fare for our pricing group, in THL's currency, and apply that margin to **THL's live net** using the ratio:
 
 ```
 ratio       = rrp / netRate          # 100/75 = 1.333  (25% margin on RRP == 33% markup on net)
@@ -190,7 +231,7 @@ Implementation notes:
 
 Send that `gross` + `commission`, and **record `thlNet` as the operator cost**. Because the net is carried through directly (not re-derived from gross), what we owe the operator is always THL's real net — a margin discrepancy can only ever move the sell price, never the settlement. By convention the CMS margin equals THL's margin, so the sell price is right too.
 
-Watch-outs: use only `status = "Live"` fares (ignore `Draft`); match `currency` to THL's; **guard a zero/absent `netRate`** (undefined ratio → flag, never divide); it's a **ratio** so the margin % stays constant as the live net moves (a flat `rrp − netRate` add-on would not); the lookup can be **cached per `productId`** (prices change rarely); and it depends on the **THL `Code` → `productId` mapping** (reference-data work a THL build needs anyway).
+Watch-outs: use only `status = "Live"` fares (discard `History` and `Draft` — a real response is mostly History); match `currency` to THL's; **guard a zero/absent `netRate`** (undefined ratio → flag, never divide); it's a **ratio** so the margin % stays constant as the live net moves (a flat `rrp − netRate` add-on would not); the lookup can be **cached per `productId`** (prices change rarely); and it depends on the **THL `Code` → `productId` mapping** (reference-data work a THL build needs anyway).
 
 ### Pricing tiers — a second net via `agentPricingGroupId` (future, not current build)
 
@@ -199,7 +240,7 @@ Everything above assumes **one** THL key, and so **one** net per product. THL ma
 **The selector is a second dimension, not a second channel.** RCM carries the tier *inside the channel name* (`RCM_SpaceShips_AU` vs `…_preferred`), which doubles the channel list per tier. THL instead carries it on the CMS fare: the fare is **`FareType = General`** with an **`agentPricingGroupId`** whose value is **assigned per Supplier Account (per brand)**. So `source` keeps naming only the brand (`THL_Maui_AU`), and `agentPricingGroupId` independently names the pricing group — two keys × N brands stays N channels, not 2N. (This is the "agent-pricing-group row" already visible on a live CMS fare, above.)
 
 <Note>
-**In the current build `agentPricingGroupId` is null** — one key, the default group — so nothing in this subsection is active yet. It documents the extension point, not shipped behaviour.
+The `/prices` **shape supports pricing groups** — `agentPricingGroupId` can carry a real id or be `null`. **Our build consumes the `null` (default) group**: one `THL_API_KEY`, one net per vehicle. A *non-null* group (a second THL key at a lower net) is the extension this subsection describes — the wiring below (`thlCredentials`, the storage dimension) is what isn't built, not the data shape. Whether THL's own products use non-null groups is a CMS-config/commercial question, not assumed here.
 </Note>
 
 **Resolution — key on the pair `(source, agentPricingGroupId)`:**
@@ -216,6 +257,8 @@ Everything above assumes **one** THL key, and so **one** net per product. THL ma
 **Storage — the margin cache gains a group dimension.** Today the product mapping stores one **`productId`** per `(source, Code)` — the single value TDMS needs (the "boilerplate" value). A tiered build also records the **`agentPricingGroupId` per brand**, keyed to `source` (the two can share the same name), and the cached **margin + PPDID then key on `(productId, agentPricingGroupId)`** rather than `productId` alone — because each pricing group has its **own CMS fare row**, hence its own `rrp/netRate` ratio.
 
 **Why the RRP stays constant.** The ratio model above is unchanged *per group* — the group simply selects which fare's ratio applies to which key's net. Each group's fare is configured to the **same guest RRP**, so the lower-net group carries a larger implied margin and `net × ratio` still lands on that RRP. Settlement records THL's **actual net for the key that signed the call**, so the books stay exact per tier. ⚠️ Keeping the per-group RRPs aligned is then a **CMS configuration discipline**; if guaranteeing an identical RRP *structurally* matters more than preserving per-group ratios, anchor on the stored RRP directly (`gross = rrp`, `commission = rrp − net`) instead of the ratio. Decide that with THL's real second-key behaviour in hand.
+
+**Shape illustration** (generic, not THL data): a fare at RRP `625.00` can appear as `agentPricingGroupId: null` → net `468.75` (**25%** margin) and `agentPricingGroupId: 6471` → net `406.25` (**35%**) — same fare, same RRP, lower net on the group. That's the tier shape the endpoint already supports; whether THL populates it is separate.
 
 ## Currency
 
