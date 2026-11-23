@@ -265,6 +265,30 @@
             "type": "integer"
           }
         }
+      },
+      "ProductImage": {
+        "type": "object",
+        "description": "One image attached to a Product.",
+        "properties": {
+          "mediaId": {
+            "type": "integer",
+            "description": "Media ID of the image."
+          },
+          "path": {
+            "type": "string",
+            "description": "Absolute URL path of image."
+          },
+          "caption": {
+            "type": "string",
+            "nullable": true,
+            "description": "Optional image caption."
+          },
+          "active": {
+            "type": "boolean",
+            "nullable": true,
+            "description": "True on first image in set. The list order is the gallery order; there is no order parameter."
+          }
+        }
       }
     }
   },
@@ -4070,7 +4094,17 @@
         ],
         "responses": {
           "200": {
-            "description": "Returned when successful."
+            "description": "Returned when successful. An array of images, in gallery order.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProductImage"
+                  }
+                }
+              }
+            }
           },
           "403": {
             "description": "Returned when you do not have access to the requested Product."
