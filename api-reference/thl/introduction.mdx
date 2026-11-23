@@ -192,6 +192,31 @@ Send that `gross` + `commission`, and **record `thlNet` as the operator cost**. 
 
 Watch-outs: use only `status = "Live"` fares (ignore `Draft`); match `currency` to THL's; **guard a zero/absent `netRate`** (undefined ratio → flag, never divide); it's a **ratio** so the margin % stays constant as the live net moves (a flat `rrp − netRate` add-on would not); the lookup can be **cached per `productId`** (prices change rarely); and it depends on the **THL `Code` → `productId` mapping** (reference-data work a THL build needs anyway).
 
+### Pricing tiers — a second net via `agentPricingGroupId` (future, not current build)
+
+Everything above assumes **one** THL key, and so **one** net per product. THL may later issue a **second key that returns a *lower* net for the same vehicle** — the guest RRP is unchanged, we simply earn a larger margin on the bigger spread. This is the same shape as RCM's `_preferred` connections (same vehicle, same sell price, different net/commission), and it is **not a concern today** — but the data model should leave room for it.
+
+**The selector is a second dimension, not a second channel.** RCM carries the tier *inside the channel name* (`RCM_SpaceShips_AU` vs `…_preferred`), which doubles the channel list per tier. THL instead carries it on the CMS fare: the fare is **`FareType = General`** with an **`agentPricingGroupId`** whose value is **assigned per Supplier Account (per brand)**. So `source` keeps naming only the brand (`THL_Maui_AU`), and `agentPricingGroupId` independently names the pricing group — two keys × N brands stays N channels, not 2N. (This is the "agent-pricing-group row" already visible on a live CMS fare, above.)
+
+<Note>
+**In the current build `agentPricingGroupId` is null** — one key, the default group — so nothing in this subsection is active yet. It documents the extension point, not shipped behaviour.
+</Note>
+
+**Resolution — key on the pair `(source, agentPricingGroupId)`:**
+
+| `agentPricingGroupId` | THL key | CMS fare (margin) |
+|---|---|---|
+| `null` (default) | `THL_API_KEY` | the product's default fare |
+| `<brand's group value>` | the tier key (e.g. `THL_API_KEY_PREFERRED`) | that group's fare row |
+
+- **The pair, not the id alone, is the lookup key.** The id's value is *per Supplier Account*, so composing on `(source, agentPricingGroupId)` stops a group id from ever selecting a tier under the wrong brand.
+- THL stays **one key per *tier*, not per brand** — the tier key still covers all brands; what varies per brand is the group-id *value*.
+- **`thlCredentials` must become group-aware.** Today it ignores the channel and returns the single `THL_API_KEY`; a tiered build maps `(source, agentPricingGroupId) → tier key`. That map lives **server-side in the admin portal**, next to the secrets, with the `null`/default row always resolving to the base key.
+
+**Storage — the margin cache gains a group dimension.** Today the product mapping stores one **`productId`** per `(source, Code)` — the single value TDMS needs (the "boilerplate" value). A tiered build also records the **`agentPricingGroupId` per brand**, keyed to `source` (the two can share the same name), and the cached **margin + PPDID then key on `(productId, agentPricingGroupId)`** rather than `productId` alone — because each pricing group has its **own CMS fare row**, hence its own `rrp/netRate` ratio.
+
+**Why the RRP stays constant.** The ratio model above is unchanged *per group* — the group simply selects which fare's ratio applies to which key's net. Each group's fare is configured to the **same guest RRP**, so the lower-net group carries a larger implied margin and `net × ratio` still lands on that RRP. Settlement records THL's **actual net for the key that signed the call**, so the books stay exact per tier. ⚠️ Keeping the per-group RRPs aligned is then a **CMS configuration discipline**; if guaranteeing an identical RRP *structurally* matters more than preserving per-group ratios, anchor on the stored RRP directly (`gross = rrp`, `commission = rrp − net`) instead of the ratio. Decide that with THL's real second-key behaviour in hand.
+
 ## Currency
 
 Every money field carries a `CurrencyCode`, set by the **rental's country** — there is no "price me in X" lever.
