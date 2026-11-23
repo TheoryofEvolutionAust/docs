@@ -5,6 +5,230 @@
     "version": "0.0.0",
     "description": "Supplier-facing Website Travel API for authentication, products, media, cancellation policies, and vouchers."
   },
+  "components": {
+    "schemas": {
+      "ProductPricesDetail": {
+        "type": "object",
+        "description": "One product price (fare) row. `GET /{supplierapi}/product/{productId}/prices` returns these same fields for each element of `results`. Responses may include further properties beyond those listed.",
+        "additionalProperties": true,
+        "required": [
+          "productPricesDetailsId",
+          "fareName",
+          "status",
+          "currency",
+          "rrp",
+          "netRate",
+          "levy",
+          "levyDescription",
+          "fareQtyRestrictions",
+          "periodStart",
+          "periodEnd",
+          "travelStart",
+          "travelEnd",
+          "pax",
+          "duration",
+          "durationNights",
+          "packageOnlyFare",
+          "allowOpenDated",
+          "defaultFare",
+          "cprFare",
+          "allowEmptyRedeemerDetails",
+          "allowFreeSell",
+          "note",
+          "deletePending"
+        ],
+        "properties": {
+          "productPricesDetailsId": {
+            "type": "integer",
+            "description": "ID of this price row. Use it as the fareprice identifier when booking."
+          },
+          "updatedAt": {
+            "type": "string",
+            "description": "Last update timestamp, when present.",
+            "nullable": true
+          },
+          "productPriceId": {
+            "type": "integer",
+            "description": "Parent product price (fare group) ID.",
+            "nullable": true
+          },
+          "productPriceSequence": {
+            "type": "integer",
+            "description": "Sequence of this price within the fare set.",
+            "nullable": true
+          },
+          "fareName": {
+            "type": "string",
+            "description": "Name of the fare type, for example `General`, `Adult`, `Child`."
+          },
+          "fareTypeCategoryId": {
+            "type": "integer",
+            "description": "ID of the fare type category, matching an `id` from `/{supplierapi}/params/faretypecategories`. Nullable: when it is absent, resolve the category by matching `fareName` against that list. Earlier responses named this field `fareTypeCategory`.",
+            "nullable": true
+          },
+          "numAdults": {
+            "type": "integer",
+            "description": "Adults eligible to travel on this fare. Family fare categories only.",
+            "nullable": true
+          },
+          "numChildren": {
+            "type": "integer",
+            "description": "Children eligible to travel on this fare. Family fare categories only.",
+            "nullable": true
+          },
+          "childMinAge": {
+            "type": "integer",
+            "description": "Minimum child age. Child and family categories only. Earlier responses named this field `minChildAge`.",
+            "nullable": true
+          },
+          "childMaxAge": {
+            "type": "integer",
+            "description": "Maximum child age. Child and family categories only. Earlier responses named this field `maxChildAge`.",
+            "nullable": true
+          },
+          "earlyBirdLeadDays": {
+            "type": "integer",
+            "description": "Lead time in days that the fare must be booked in advance. Early bird fares only.",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "description": "Status of this price row, for example `Draft`, `Live` or `History`. Spelled in full here, unlike the single-letter `productStatusCode` a product version uses. Editing a live price creates a draft copy, so a product can hold a `Live` row and a `Draft` row at once; the `Live` one remains in effect until the draft is approved."
+          },
+          "currency": {
+            "type": "string",
+            "description": "ISO 4217 currency code."
+          },
+          "agentPricingGroupId": {
+            "type": "integer",
+            "description": "Agent pricing group ID, when this price belongs to one. A price on an agent pricing group is offered only to the agents in that group, so it is not the product standing rate.",
+            "nullable": true
+          },
+          "rrp": {
+            "type": "number",
+            "description": "Recommended retail price.",
+            "format": "float"
+          },
+          "netRate": {
+            "type": "number",
+            "description": "Net or wholesale price.",
+            "format": "float"
+          },
+          "levy": {
+            "type": "number",
+            "description": "Any levy charged on top of RRP at point of travel.",
+            "format": "float"
+          },
+          "levyDescription": {
+            "type": "string",
+            "description": "Description of the levy."
+          },
+          "fareQtyRestrictions": {
+            "type": "integer",
+            "description": "Quantity, or multiples of it, that agents must select when purchasing this fare."
+          },
+          "periodStart": {
+            "type": "string",
+            "description": "Start date of the active period.",
+            "format": "date"
+          },
+          "periodEnd": {
+            "type": "string",
+            "description": "End date of the active period.",
+            "format": "date"
+          },
+          "travelStart": {
+            "type": "string",
+            "description": "Start date of the travel period.",
+            "format": "date"
+          },
+          "travelEnd": {
+            "type": "string",
+            "description": "End date of the travel period.",
+            "format": "date"
+          },
+          "pax": {
+            "type": "integer",
+            "description": "Number of people the price covers."
+          },
+          "duration": {
+            "type": "integer",
+            "description": "Duration of the tour in days."
+          },
+          "durationNights": {
+            "type": "integer",
+            "description": "Duration of the tour in nights."
+          },
+          "packageOnlyFare": {
+            "type": "boolean",
+            "description": "Whether this is a package-only fare."
+          },
+          "allowOpenDated": {
+            "type": "boolean",
+            "description": "Whether open dated bookings are allowed."
+          },
+          "defaultFare": {
+            "type": "boolean",
+            "description": "Whether this is the default fare for the product."
+          },
+          "cprFare": {
+            "type": "boolean",
+            "description": "Control Panel Rate, where an agent pricing group is in use."
+          },
+          "allowEmptyRedeemerDetails": {
+            "type": "boolean",
+            "description": "Whether empty redeemer details are allowed."
+          },
+          "allowFreeSell": {
+            "type": "boolean",
+            "description": "Whether freelance sell is allowed."
+          },
+          "note": {
+            "type": "string",
+            "description": "Any special comments made by the supplier."
+          },
+          "suggestedHotDeal": {
+            "type": "boolean",
+            "description": "Suggested hot-deal flag, when present.",
+            "nullable": true
+          },
+          "fareTagIds": {
+            "type": "string",
+            "description": "Fare tag IDs in the format the API returns, often comma separated. Note that `POST` and `PUT` accept this field as an array of integers.",
+            "nullable": true
+          },
+          "deletePending": {
+            "type": "boolean",
+            "description": "Whether a delete request is pending for this fare."
+          },
+          "bookingSystemMapping": {
+            "type": "array",
+            "description": "Fields used to map the product to an external reservation system. Fields vary according to the booking system used; contact Website Travel for more information.",
+            "nullable": true,
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ProductPricesList": {
+        "type": "object",
+        "description": "Every price (fare) row on the product.",
+        "properties": {
+          "results": {
+            "type": "array",
+            "description": "Array of product price objects.",
+            "items": {
+              "$ref": "#/components/schemas/ProductPricesDetail"
+            }
+          }
+        },
+        "required": [
+          "results"
+        ]
+      }
+    }
+  },
   "paths": {
     "/apiv1/supplier/token": {
       "post": {
@@ -2259,7 +2483,14 @@
         ],
         "responses": {
           "200": {
-            "description": "Returned when successful"
+            "description": "Returned when successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductPricesDetail"
+                }
+              }
+            }
           },
           "400": {
             "description": "Product or product price not found"
@@ -2269,6 +2500,9 @@
           },
           "500": {
             "description": "Internal error"
+          },
+          "404": {
+            "description": "Product not found."
           }
         }
       }
@@ -2304,7 +2538,14 @@
         ],
         "responses": {
           "200": {
-            "description": "Returned when successful."
+            "description": "Returned when successful.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductPricesList"
+                }
+              }
+            }
           },
           "400": {
             "description": "Product or product price not found."
