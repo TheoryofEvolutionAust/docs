@@ -226,6 +226,45 @@
         "required": [
           "results"
         ]
+      },
+      "Media": {
+        "type": "object",
+        "description": "One image in the supplier account media pool.",
+        "additionalProperties": true,
+        "required": [
+          "mediaId",
+          "archived",
+          "originalName",
+          "urlPath",
+          "supplierId"
+        ],
+        "properties": {
+          "mediaId": {
+            "description": "ID of the image. Use it in `PUT /{supplierapi}/product/{productId}/images`.",
+            "type": "integer"
+          },
+          "archived": {
+            "description": "Whether the image is archived.",
+            "type": "boolean"
+          },
+          "caption": {
+            "description": "Caption stored with the media, when one was supplied.",
+            "type": "string",
+            "nullable": true
+          },
+          "originalName": {
+            "description": "The uploaded filename. This is the only way to recover a `mediaId` whose upload response was lost, by matching against `GET /{supplierapi}/media/thumbnails` — worth keeping filenames unique within an account for that reason.",
+            "type": "string"
+          },
+          "urlPath": {
+            "description": "Absolute URL of the stored original.",
+            "type": "string"
+          },
+          "supplierId": {
+            "description": "The supplier account the image belongs to. Media is a pool per account, so one upload serves every product in that account.",
+            "type": "integer"
+          }
+        }
       }
     }
   },
@@ -342,7 +381,18 @@
         ],
         "responses": {
           "200": {
-            "description": "Returned when successful."
+            "description": "Returned when successful.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "description": "Every image in the account pool.",
+                  "items": {
+                    "$ref": "#/components/schemas/Media"
+                  }
+                }
+              }
+            }
           },
           "403": {
             "description": "User does not have access to the requested product"
@@ -402,7 +452,14 @@
         ],
         "responses": {
           "200": {
-            "description": "Returned when successful."
+            "description": "Returned when successful.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Media"
+                }
+              }
+            }
           },
           "400": {
             "description": "Returned when size requested does not match allowed sizes."
@@ -516,7 +573,14 @@
         ],
         "responses": {
           "200": {
-            "description": "Returned when successful. Returns a media object."
+            "description": "Returned when successful. Returns a media object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Media"
+                }
+              }
+            }
           },
           "400": {
             "description": "Returned when no file received."
@@ -526,6 +590,57 @@
           },
           "500": {
             "description": "Internal error."
+          }
+        },
+        "requestBody": {
+          "description": "Either a binary file or a URL for the server to fetch, never both.\n\nUse `multipart/form-data` with a binary `file` part when uploading from disk or a client library. Use `application/json` with `imageUrl` when the server should fetch the image itself.",
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "description": "Binary image body. Must be `image/jpeg` or `image/pjpeg`, 4 MB maximum.",
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "caption": {
+                    "description": "Optional caption stored with the media.",
+                    "type": "string"
+                  },
+                  "isLogo": {
+                    "description": "When true, only thumbnail processing applies; medium and large derivatives are not generated.",
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "imageUrl"
+                ],
+                "properties": {
+                  "imageUrl": {
+                    "description": "Absolute URL the server fetches the image from. It must resolve to a plain JPEG; a URL carrying a query string (for example a Next.js `/_next/image?url=…&w=…` endpoint) is not accepted.",
+                    "type": "string"
+                  },
+                  "caption": {
+                    "description": "Optional caption stored with the media.",
+                    "type": "string"
+                  },
+                  "isLogo": {
+                    "description": "When true, only thumbnail processing applies.",
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
           }
         }
       }
