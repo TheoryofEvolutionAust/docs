@@ -20,6 +20,20 @@ Every fare carries a `bookingSystem` value under `farePrices[].bookingSystem`. T
 
 Always branch on `farePrices.bookingSystem` BEFORE choosing a workflow. Treat unknown or missing values as Workflow A (safe default).
 
+<Warning>
+**Supplier levy — surface it in Add-on checkout flows.**
+
+The `/apiv1/checkavailabilityrange` response carries an optional top-level `levy` field (string, nullable, e.g. `"AUD $15"`). This is a **mandatory extra charged directly by the supplier on the day of travel** (park fees, reef tax, fuel surcharge, etc.) and is **NOT** collected through TDMS / the reseller API — the customer pays it to the operator on arrival.
+
+Scope: this is an **Add-on checkout concern**, not a tour-booking concern. The product-level decision in our stack is to surface levy on Add-on tiles / Add-on configure UIs; core tour booking flows ignore it.
+
+If you're building an Add-on flow and `levy` is present and non-empty, show it to the customer before they commit, with wording that makes it clear it's separate from the transaction. Our standard copy is:
+
+> Extra mandatory costs (payable directly to the operator): **{levy}**
+
+The field is available across all three workflows because they all hit `/apiv1/checkavailabilityrange` at some point (Workflow A at step 2, Workflow B at step 1, Workflow C at step 1). Cache it alongside live pricing — a date-specific levy is just as important as a date-specific RRP.
+</Warning>
+
 ## Workflow A — Standard booking systems
 
 `Generic` · `Clockwork` · `CMS` · `SOAAccommodation`
@@ -123,6 +137,7 @@ Real response from the same product above (captured when Rezdy was Workflow A �
     "Note": null,
     "RequiresFurtherDetailsToConfirm": false,
     "DateRestriction": null,
+    "levy": null,
     "productPricingData": {
       "RRP": 759.0,
       "RRPWas": 759.0,
@@ -137,6 +152,10 @@ Real response from the same product above (captured when Rezdy was Workflow A �
   }
 ]
 ```
+
+<Info>
+`levy` is nullable. When present it's a pre-formatted string ready to show (e.g. `"AUD $15"`) — surface it alongside the price per the levy callout above.
+</Info>
 
 ## Workflow B — Enhanced booking systems
 
