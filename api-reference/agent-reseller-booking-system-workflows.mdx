@@ -23,11 +23,16 @@ Always branch on `farePrices.bookingSystem` BEFORE choosing a workflow. Treat un
 <Warning>
 **Supplier levy — surface it in Add-on checkout flows.**
 
-The `/apiv1/checkavailabilityrange` response carries an optional top-level `levy` field (string, nullable, e.g. `"AUD $15"`). This is a **mandatory extra charged directly by the supplier on the day of travel** (park fees, reef tax, fuel surcharge, etc.) and is **NOT** collected through TDMS / the reseller API — the customer pays it to the operator on arrival.
+The `/apiv1/checkavailabilityrange` response carries an optional `levy` field nested under `extraInfo` (string, nullable, e.g. `"AUD $15"`). This is a **mandatory extra charged directly by the supplier on the day of travel** (park fees, reef tax, fuel surcharge, etc.) and is **NOT** collected through TDMS / the reseller API — the customer pays it to the operator on arrival.
+
+```json
+"extraInfo": { "levy": "AUD $15" }    // levy charged
+"extraInfo": []                        // no levy — note the empty ARRAY shape
+```
 
 Scope: this is an **Add-on checkout concern**, not a tour-booking concern. The product-level decision in our stack is to surface levy on Add-on tiles / Add-on configure UIs; core tour booking flows ignore it.
 
-If you're building an Add-on flow and `levy` is present and non-empty, show it to the customer before they commit, with wording that makes it clear it's separate from the transaction. Our standard copy is:
+If you're building an Add-on flow and `extraInfo.levy` is present and non-empty, show it to the customer before they commit, with wording that makes it clear it's separate from the transaction. Our standard copy is:
 
 > Extra mandatory costs (payable directly to the operator): **{levy}**
 
@@ -137,7 +142,6 @@ Real response from the same product above (captured when Rezdy was Workflow A �
     "Note": null,
     "RequiresFurtherDetailsToConfirm": false,
     "DateRestriction": null,
-    "levy": null,
     "productPricingData": {
       "RRP": 759.0,
       "RRPWas": 759.0,
@@ -154,7 +158,7 @@ Real response from the same product above (captured when Rezdy was Workflow A �
 ```
 
 <Info>
-`levy` is nullable. When present it's a pre-formatted string ready to show (e.g. `"AUD $15"`) — surface it alongside the price per the levy callout above.
+A supplier levy, when charged, arrives under `extraInfo.levy` on this row (pre-formatted string, e.g. `"AUD $15"`). When no levy applies the field is absent and `extraInfo` is commonly an empty array `[]`. Surface it alongside the price per the levy callout at the top of this page.
 </Info>
 
 ## Workflow B — Enhanced booking systems
