@@ -25,9 +25,16 @@ Always branch on `farePrices.bookingSystem` BEFORE choosing a workflow. Treat un
 
 The `/apiv1/checkavailabilityrange` response carries an optional `levy` field nested under `extraInfo` (string, nullable, e.g. `"AUD $15"`). This is a **mandatory extra charged directly by the supplier on the day of travel** (park fees, reef tax, fuel surcharge, etc.) and is **NOT** collected through TDMS / the reseller API — the customer pays it to the operator on arrival.
 
+Levy charged:
+
 ```json
-"extraInfo": { "levy": "AUD $15" }    // levy charged
-"extraInfo": []                        // no levy — note the empty ARRAY shape
+{ "extraInfo": { "levy": "AUD $15" } }
+```
+
+No levy — note the empty **array** shape:
+
+```json
+{ "extraInfo": [] }
 ```
 
 Scope: this is an **Add-on checkout concern**, not a tour-booking concern. The product-level decision in our stack is to surface levy on Add-on tiles / Add-on configure UIs; core tour booking flows ignore it.
