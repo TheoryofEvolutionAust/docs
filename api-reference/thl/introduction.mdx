@@ -281,6 +281,49 @@ The `VehAvailRate` responses return, per vehicle: **code** (`VehMakeModel Code`,
 
 What you do **not** get: images, marketing descriptions, specifications, feature lists, galleries or floor plans — the rich content Jucy serves. The API gives enough to **identify and price** a vehicle, not to **merchandise** it. So, like RCM, THL is effectively **IDs-only for content**: images/descriptions would be sourced by us or TDMS, keyed on the vehicle `Code`; TransportSOA passes IDs. Appendix A is likewise just `Name → Code → Brand`. There is no Jucy-style product-content endpoint to import from.
 
+## Appendix B — Motek branch codes &amp; brands
+
+THL exposes **no list-locations call**, so this is the static reference the mapping relies on. A `LocationCode` in a `VehAvailRate` / `VehRetRes` request is a **Motek branch code**.
+
+**How we know:** these are transcribed from THL's own **"Appendix B — List of Locations and Brands" (dated 13 Aug 2026)** — the authoritative Motek source. Both Apollo and Maui appear at **all 10 AU** and **all 3 NZ** locations, so the networks are complete. One code is **not** the IATA code: **Hobart is `HBT`** (not `HBA`); all others match IATA, and `AKL` is additionally API-confirmed (a real staging `VehAvailRate` returned `LocationCode="AKL"`). A wrong code is non-breaking — THL just returns nothing for that location.
+
+The current build maps three TDMS `source` channels (one `VehAvailRate` call returns every brand for the country; split by `Vendor`):
+
+| TDMS `source` | Brand | Country | Currency |
+|---|---|---|---|
+| `THL_Apollo_AU` | Apollo | Australia | `AUD` |
+| `THL_Maui_AU` | Maui | Australia | `AUD` |
+| `THL_Apollo_NZ` | Apollo | New Zealand | `NZD` |
+
+**Australia** — Apollo and Maui share the same 10-branch network:
+
+| City | Code | State/Region |
+|---|---|---|
+| Sydney | `SYD` | NSW |
+| Brisbane | `BNE` | QLD |
+| Cairns | `CNS` | QLD |
+| Melbourne | `MEL` | VIC |
+| Adelaide | `ADL` | SA |
+| Perth | `PER` | WA |
+| Broome | `BME` | WA |
+| Darwin | `DRW` | NT |
+| Alice Springs | `ASP` | NT |
+| Hobart | `HBT` | TAS |
+
+(MightyLITE is absent from Alice Springs, Broome, Darwin and Hobart — not relevant to this build, which carries only Apollo and Maui, both at all 10.)
+
+**New Zealand** — Apollo, 3 branches (one-way rentals marketed between them):
+
+| City | Code | Island |
+|---|---|---|
+| Auckland | `AKL` ✅ | North |
+| Christchurch | `CHC` | South |
+| Queenstown | `ZQN` | South |
+
+**Vendor codes** (the `Vendor CompanyShortName` / `Code` a `VehAvailRate` returns, used to split one response by brand): Mighty `Y`, Apollo `A`, Maui `M`, Britz `B`, MightyLITE `L`. Only Apollo and Maui are in the current build (the brands with live CMS product); the others are present in the same response and ignored until onboarded.
+
+These rows are seeded into `transportsoa` reference data as `location_data` (per-source `site_code` → `ts_location_name`) and `fleet_type` (Campervan + Motorhome) by `seed/thl.sql`.
+
 ## Adding to this section
 
 When a build (or a staging call) teaches us something about THL:
