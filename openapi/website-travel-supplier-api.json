@@ -240,7 +240,7 @@
         ],
         "properties": {
           "mediaId": {
-            "description": "ID of the image. Use it in `PUT /{supplierapi}/product/{productId}/images`.",
+            "description": "ID of the image. Use it in `PUT /{supplierapi}/product/{productId}/images`. CONFIRMED to be the same id space as `GET /{supplierapi}/product/{productId}/images`: the pool id resolved for a filename is the id that product's gallery holds. Verified on product 87684, where `maui-Beach_0830-(2).jpg` resolves to 418498 in the account pool and 418498 is one of the eight ids attached to that product. So an id taken from the pool listing needs no translation before being attached, and `POST /media` returning an id makes the two routes to it equivalent.",
             "type": "integer"
           },
           "archived": {
