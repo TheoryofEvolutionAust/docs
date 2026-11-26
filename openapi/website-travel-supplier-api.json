@@ -3625,7 +3625,7 @@
                     "type": "string"
                   },
                   "tourCode": {
-                    "description": "Tour code.",
+                    "description": "Tour code. This is the vehicle code shown as the Tour Code column on the CMS products list, and it is the only one of the two code fields a person can read back: externalId is returned by NEITHER read on this API. It is an identifier, not boilerplate — a product created by copying another product must be given its own, or it silently carries the donor's.",
                     "type": "string"
                   },
                   "mandatoryFieldCheckout": {
@@ -3903,7 +3903,7 @@
                     "type": "string"
                   },
                   "tourCode": {
-                    "description": "Tour code.",
+                    "description": "Tour code. This is the vehicle code shown as the Tour Code column on the CMS products list, and it is the only one of the two code fields a person can read back: externalId is returned by NEITHER read on this API. It is an identifier, not boilerplate — a product created by copying another product must be given its own, or it silently carries the donor's.",
                     "type": "string"
                   },
                   "mandatoryFieldCheckout": {
