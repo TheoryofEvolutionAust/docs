@@ -4157,7 +4157,7 @@
         ],
         "responses": {
           "201": {
-            "description": "Returned when successful."
+            "description": "Returned when successful. Confirmed: the gallery then reads back in the order sent."
           },
           "204": {
             "description": "Returned when Media ID's supplied matched existing ID's set against Product (no-change)."
@@ -4179,7 +4179,7 @@
           }
         },
         "requestBody": {
-          "description": "The media ids to associate, in gallery order. Required.",
+          "description": "The media ids to associate, in gallery order. Required. CONFIRMED against the live API on 2026-11-26 (product 89581): this body returns 201 and the gallery reads back with all ten ids in the order they were sent.",
           "required": true,
           "content": {
             "application/json": {
@@ -4191,7 +4191,7 @@
                 "properties": {
                   "mediaIds": {
                     "type": "string",
-                    "description": "Comma separated list of Media IDs, in gallery order. Maximum of 10 per product. If some images were already set, only the first X are used to fill the remaining spaces. The list order IS the gallery order; whatever is first becomes the hero image.",
+                    "description": "Comma separated list of Media IDs, in gallery order. Maximum of 10 per product. If some images were already set, only the first X are used to fill the remaining spaces. The list order IS the gallery order and is preserved exactly — whatever is first becomes the hero image, which GET /{supplierapi}/product/{productId}/images reports as `active`. Confirmed on product 89581.",
                     "example": "1001,1002,1003"
                   }
                 }
