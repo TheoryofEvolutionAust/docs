@@ -4129,8 +4129,12 @@
           {
             "name": "mediaIds",
             "in": "query",
-            "description": "Comma separated list of Media ID's. Maximum of 10 per product. If some images were already set, then only the first X will be used to fill the remaining spaces. WARNING: the accepted spelling of this list is NOT ESTABLISHED. Observed against a live supplier account (products 89476 and 89581, November 2026): BOTH mediaIds=1%2C2%2C3 (percent-encoded separator, which is what URLSearchParams and most form-urlencoded serialisers produce) and mediaIds=1,2,3 (literal commas, as described above) are refused with 400 and the message \"No Media ID's were supplied.\" — a different message from the documented 400 below, and one that means the parameter arrived and no ids parsed out of it. The plain repeated key mediaIds=1&mediaIds=2&mediaIds=3 was also tried and refused with the identical message. Those two failures together imply the parameter is typed as an ARRAY: a handler splitting a string would have accepted the comma form, and one taking the last repeated value would have attached a single image rather than reporting none. The spelling still to try is therefore the bracketed array, mediaIds[]=1&mediaIds[]=2&mediaIds[]=3, with the brackets sent literally.",
-            "required": true
+            "description": "Deprecated as a query parameter. `mediaIds` is sent in a REQUIRED JSON request body on this endpoint, as `{\"mediaIds\": \"1001,1002,1003\"}` — a comma separated string. Four query spellings (percent-encoded commas, literal commas, a repeated key, and mediaIds[]=) were sent to the live API against products 89476 and 89581 and every one answered 400 \"No Media ID's were supplied.\", because nothing reads the query string here. The sibling GET on this path likewise takes its `size` argument in a JSON body.",
+            "required": false,
+            "deprecated": true,
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "supplierapi",
@@ -4172,6 +4176,41 @@
           },
           "500": {
             "description": "Internal error."
+          }
+        },
+        "requestBody": {
+          "description": "The media ids to associate, in gallery order. Required.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "mediaIds"
+                ],
+                "properties": {
+                  "mediaIds": {
+                    "type": "string",
+                    "description": "Comma separated list of Media IDs, in gallery order. Maximum of 10 per product. If some images were already set, only the first X are used to fill the remaining spaces. The list order IS the gallery order; whatever is first becomes the hero image.",
+                    "example": "1001,1002,1003"
+                  }
+                }
+              },
+              "examples": {
+                "several": {
+                  "summary": "Several media IDs",
+                  "value": {
+                    "mediaIds": "1001,1002,1003"
+                  }
+                },
+                "one": {
+                  "summary": "A single media ID",
+                  "value": {
+                    "mediaIds": "1001"
+                  }
+                }
+              }
+            }
           }
         }
       },
