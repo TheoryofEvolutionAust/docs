@@ -99,35 +99,32 @@ The `Vendor` list in a `VehAvailRate` response is **broader than these five** �
 
 Note also that THL's only "category" dimension on a vehicle is the **berth bucket** `VehType VehicleCategory` (`V2`–`V6`) — there is no named Campervan/Car/Motorhome type in the response; brand is the real axis.
 
-## Rates — net by default, gross (RRP) on request
+## Rates — net only; gross is the CMS margin on net
 
-THL's AU/NZ brands are **net rate** by default — *"All ATL brands are net rate"* — so TransportSOA applies the margin, consistent with the WebsiteTravel model. The rate type is a **mandatory `Status`** request parameter, and you get **one or the other per call**, never both at once:
+THL's AU/NZ brands are **net rate only** (*"All ATL brands are net rate"*, confirmed 2026-11-26) — THL does **not** return a gross/RRP to us at all. So TransportSOA always searches `Status=Available` (net) and produces the sell price by applying the **CMS margin** to that net. There is no second call for gross.
 
 | `Status` | Vehicle rate returned |
 |---|---|
-| `Available` | **Net** (what we mark up) |
-| `Gross` | **Gross** — the RRP |
+| `Available` | **Net** — the only rate we use |
+| `Gross` | Returns **no availability** for these brands — THL is net-only; **do not send** |
 
-The response's `RateCategory` confirms which came back (`1` = Gross, `0` = Net). To show both net *and* RRP you'd make two calls, or take net and add the margin.
+Everything we receive comes back `RateCategory = 0` (Net).
 
 <Warning>
-**Live finding (2026-11-23, staging) — `Status=Gross` alone returns NO availability.** A real AKL search that returns 30 vehicles at net (`Status=Available`) returns *"no availability"* at `Status=Gross`, for all brands and per single brand (Maui, Britz tested). The net rates come back under `PromotionCode`s all suffixed **`N`** (`MIGHTYN`, `BRITZN`, `APOLLON`, `MAUIN`, `MIGHTYNL`), which suggests **gross is selected by a different `PromotionCode`/`RateQualifier` (the non-`N` brand code), not by `Status` alone** — our request sent an empty `RateQualifier`. UNRESOLVED: either these brands are net-only, or the gross request is under-specified. **Confirm with THL** what request yields the Gross/RRP before relying on a two-call RRP (and before building any gross-vs-net margin monitor). The CMS-margin pricing path does not depend on this.
+**Resolved (2026-11-26) — THL is NET-ONLY; do not send `Status=Gross`.** An earlier staging finding (2026-11-23) showed `Status=Gross` returning *"no availability"* where `Status=Available` returned 30 vehicles (net rates arriving under `PromotionCode`s suffixed `N` — `MIGHTYN`/`BRITZN`/…). This is now confirmed as **net-only**, not an under-specified request: THL does not expose a gross/RRP to us. Gross is produced **solely from the CMS margin** (below). The gross-vs-net margin monitor is therefore **dropped** — there is no THL gross to compare against.
 </Warning>
 
 **Extras and insurance are different** — `GetExtraHireItems` returns **both** `GrossAmt` and `NettAmt` on every product, side by side (in THL's samples they're equal, but the fields carry both).
 
 <Note>
-This is a different pricing model from our other two suppliers. **Jucy and RCM are a commission model** — they return a gross/retail rate **plus an `agentCommission`**, and net is derived (gross − commission). **THL returns net directly** and has no commission concept; gross is just the alternate `Status`.
+This is a different pricing model from our other two suppliers. **Jucy and RCM are a commission model** — they return a gross/retail rate **plus an `agentCommission`**, and net is derived (gross − commission). **THL returns net only** — no commission concept and no gross at all; the sell price is net + our CMS margin.
 </Note>
 
 ### Feeding TDMS, which expects gross
 
-TDMS expects TransportSOA to send a **gross** sell price (with commission), exactly as Jucy and RCM already do. THL gives us net and **no bridge** to gross — one response never yields the other, and there is no commission field — so for THL we have to *produce* the gross. Two ways:
+TDMS expects TransportSOA to send a **gross** sell price (with commission), exactly as Jucy and RCM already do. THL gives us **net only** and no commission field, so for THL we **produce** the gross by applying a margin to the net (one `Status=Available` call): `gross = net + margin`, and the commission we report **is** that margin.
 
-- **Default: apply a WebsiteTravel margin to net** (one `Status=Available` call). `gross = net + margin`, and the commission we report **is** that margin. This fits the existing "net rate, we add the margin" model — but the margin is a **new THL config input**, because Jucy's/RCM's commission is supplier-set and varies by key, whereas THL's is ours to define.
-- **Alternative: honour THL's own RRP** (two calls — `Available` + `Gross`). Send THL's `Status=Gross` as the gross and set `commission = gross − net`. Only worth it if TDMS must show THL's published retail; costs a second call and reconciling two responses.
-
-Either way TDMS receives gross + commission. The real difference from Jucy/RCM: **their commission is the operator's** (per-key), **THL's is ours to define** — so a THL build needs a margin rule that the other two suppliers never required.
+The real difference from Jucy/RCM: **their commission is the operator's** (supplier-set, per-key), **THL's is ours to define** — so a THL build needs a margin rule the other two never required. That margin is single-sourced from **CMS** (next), not a new TransportSOA config.
 
 **The commission is a % of RRP, set by the operator** — that's the WebsiteTravel model for every supplier: the agent earns that %, and `net-to-operator = RRP − commission`. Jucy/RCM hand us that commission in the response; THL doesn't, so we reconstruct the % from CMS (next).
 
