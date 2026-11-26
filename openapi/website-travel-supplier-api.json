@@ -4129,7 +4129,7 @@
           {
             "name": "mediaIds",
             "in": "query",
-            "description": "Comma separated list of Media ID's. Maximum of 10 per product. If some images were already set, then only the first X will be used to fill the remaining spaces. Send the commas LITERALLY: a percent-encoded separator (mediaIds=1%2C2%2C3) is accepted as a parameter and resolves to no ids, answering 400 with the message \"No Media ID's were supplied.\" — which is a different message from the 400 below and means the parameter arrived but nothing parsed out of it. Note that URLSearchParams and most form-urlencoded serialisers percent-encode a comma by default.",
+            "description": "Comma separated list of Media ID's. Maximum of 10 per product. If some images were already set, then only the first X will be used to fill the remaining spaces. WARNING: the accepted spelling of this list is NOT ESTABLISHED. Observed against a live supplier account (products 89476 and 89581, November 2026): BOTH mediaIds=1%2C2%2C3 (percent-encoded separator, which is what URLSearchParams and most form-urlencoded serialisers produce) and mediaIds=1,2,3 (literal commas, as described above) are refused with 400 and the message \"No Media ID's were supplied.\" — a different message from the documented 400 below, and one that means the parameter arrived and no ids parsed out of it. If a comma separated value is refused, the remaining spelling to try is the repeated key: mediaIds=1&mediaIds=2&mediaIds=3.",
             "required": true
           },
           {
@@ -4189,7 +4189,7 @@
             "in": "query",
             "required": true,
             "schema": {
-              "description": "Comma separated list of Media ID's. Send the commas LITERALLY: as with PUT /{supplierapi}/product/{productId}/images, a percent-encoded separator (mediaIds=1%2C2%2C3) is accepted as a parameter and resolves to no ids. URLSearchParams and most form-urlencoded serialisers percent-encode a comma by default.",
+              "description": "Comma separated list of Media ID's. WARNING: see PUT /{supplierapi}/product/{productId}/images — a comma separated value for this parameter has been observed to be refused there with 400 \"No Media ID's were supplied.\" in both the percent-encoded and the literal-comma form. This DELETE has not been exercised; if a comma separated value is refused, try the repeated key form mediaIds=1&mediaIds=2&mediaIds=3.",
               "type": "string",
               "example": "1,2,3"
             }
